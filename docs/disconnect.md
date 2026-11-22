@@ -12,11 +12,11 @@ If the connection to the real server is lost, including server failure, clean co
 
 ## Ungraceful loss
 
-A killed process, whole-game crash, or vanished connection stops the owner's per-cycle heartbeat. `disconnect_timeout_ticks` (default 600 real-server ticks, about 30 seconds at 20 TPS) is measured from the last valid heartbeat. A valid heartbeat resets the counter.
+A killed process, whole-game crash, or vanished connection stops the owner's per-cycle heartbeat. `disconnect_timeout_ticks` (default 600 real-server ticks, about 30 seconds at 20 TPS) is measured from the last valid heartbeat. Only a valid advancing completed-cycle heartbeat resets the counter; see [heartbeat validation](delta-sync.md#heartbeats-and-completed-cycles). Duplicate packets and network keepalives do not.
 
 The affected chunks are exactly the chunks still assigned to that sub-server, not its requested radius or every nearby player's chunks. Until timeout, the real server does not simulate them. Without incoming results their visible simulation freezes; lag alone does not instantly revoke ownership.
 
-At timeout, the real server invalidates the missing owner's generation, reclaims its chunks, and resumes from its latest applied state at a tick boundary. It does not wait for the missing owner. Any result never applied to the real server can be lost. There is no fixed one-second rollback bound: per-tick batching does not bound network backlog.
+At timeout, the real server invalidates the missing owner's generation, reclaims its chunks, and resumes from its [latest fully installed state/frontier](delta-sync.md#latest-applied-state) at a tick boundary. It does not wait for the missing owner. Any result never applied to the real server can be lost. There is no fixed one-second rollback bound: per-tick batching does not bound network backlog.
 
 A sub-server-only failure that can still be reported through the live client connection permits immediate reclaim rather than waiting for a heartbeat timeout. This cannot guarantee that the player keeps playing after a crash of the entire Minecraft process.
 

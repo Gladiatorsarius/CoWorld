@@ -9,7 +9,7 @@ Players without CoWorld connect normally and cannot host a sub-server. They stay
 ## Joining
 
 1. [Handshake](handshake.md) checks versions, offloading preferences, capacity, and ping. Accept starts sync, not ownership.
-2. [Initial sync](sync.md) sends a hashed manifest and files from the server's mods folder, then world data nearest the player first, with the rest in the background. These are the sub-server's mods, not the player's own client-mod set.
+2. [Initial sync](sync.md) sends hashed manifests and the complete server versions/libraries folders followed by the complete mods/config folders, then required world metadata/datapacks, all player data and chunk snapshots nearest the player first, with the rest in the background. These are the sub-server's mods, not the player's own client-mod set.
 3. [Bootstrap](client-server-bootstrap.md) starts the sub-server in the same Minecraft process using its isolated per-server/world cache. Synced data is loaded without authoritative ticking.
 4. [Handover](handover.md) transfers eligible caught-up chunks or whole redstone sets. Readiness is acknowledged while the old owner keeps ticking; only final catch-up and commit require a brief stop at a later tick boundary.
 5. After takeover, [delta sync](delta-sync.md) carries ordered per-tick results and outside inputs. [Rejoin](rejoin.md) revalidates compatible cached content after every fresh handshake, without restoring old ownership grants.
@@ -30,7 +30,7 @@ Routine chunk handovers in either direction are blocked for the chunk an unmodde
 
 In v1, the real server relays inputs to the current owner, stores the resulting changes, and relays results to other players. It does not simulate offloaded chunks or merge independently produced block states. Outside effects enter the owner's simulation as inputs, not competing block writes. Nearby unowned caches receive their actual owner's results; distant caches are checked before reuse.
 
-The planned v2 adds opt-in direct P2P per owner with relay fallback. It is not required for v1. General client prediction is not part of this model.
+General client prediction is not part of this model.
 
 ## Borders and explicit shadow exceptions
 

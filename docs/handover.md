@@ -12,6 +12,14 @@ A snapshot is the complete state after a finished tick N: blocks, block entities
 
 The source keeps ticking while the destination loads this snapshot and applies subsequent ordered deltas. Ready means the destination has the snapshot and every delta through an explicitly identified completed tick/version, not merely that a download finished or a local queue is empty.
 
+## Complete-state scope
+
+Capture persistent and transient state needed to continue the same simulation at the selected completed boundary, not only native saved NBT. Include blocks and block entities, entities and group links, inventories and AI continuation, scheduled block/fluid ticks and their order, queued block events/neighbor updates that survive the boundary, piston/redstone continuation, random-generator state, chunk metadata and every required mod attachment or runtime queue. Capture the input watermark, pending inputs and deduplication state with that same snapshot. References to server-owned global state are explicit references, not independent writable copies.
+
+A mod must declare every relevant world/chunk/block-entity/entity/player state domain as transferable, server-owned shared state, or unsupported. Transferable state needs capture, restore and delta behavior that covers transient as well as persistent values. Preserve meaningful list/queue order and entity identity. A field being omitted by a normal save or client-update packet is not evidence that it is irrelevant. Derived state may be rebuilt only if the shared schema defines a deterministic reconstruction before the next tick.
+
+Shared world-global state stays authoritative on the real server and is accessed through ordered owner inputs/results unless the mod provides an explicit partition and transfer contract. Do not give every sub-server a separately writable scoreboard, global mod counter or dimension-wide queue. Unknown required behavior/state pins the affected chunks to the real server; if its scope cannot be bounded, decline offloading for that world. Matching files alone does not prove runtime-state support. The [native snapshot-adapter mapping](rejoin.md#snapshot-adapter-schema-status) remains a separate prerequisite, not something the word complete defines automatically.
+
 ## Transfer
 
 1. The real server coordinates one transfer at a time for the chunk or redstone set. The current owner sends its end-of-tick snapshot and keeps ticking and sending deltas.

@@ -6,7 +6,7 @@ Reuse a verified compatible cache after a fresh [handshake](handshake.md), witho
 
 ## Compatibility
 
-Hello reports the previous cache and its metadata. Reuse requires the same server UUID and world UUID, matching CoWorld and Minecraft versions, matching server mods manifest hashes, matching cache-format version, and intact cached data. Validate mod files through their manifest hashes. Missing, corrupt, older-version, or otherwise incompatible caches take [initial sync](sync.md).
+Hello reports the previous cache and its metadata. Reuse requires the same server UUID and world UUID, matching CoWorld and Minecraft versions, matching server execution manifest hashes, matching cache-format version, and intact cached data. Validate every mods/config/runtime file through its execution-manifest hash. Revalidate all player files and mandatory bootstrap data before ticking; a matching cached region does not waive those prerequisites. Missing, corrupt, older-version, or otherwise incompatible caches take [initial sync](sync.md).
 
 Live CoWorld/protocol incompatibility declines offloading; incompatible cached data only changes the sync path. A cached world played in singleplayer is not authoritative and must pass the same comparison.
 
@@ -40,7 +40,7 @@ The root has these fields, including empty collections:
 - `mod_data`: Compound keyed by full namespaced mod-data identifier, containing all mod-provided state needed to restore the chunk and its simulation.
 - `extra`: Compound containing all other transferable chunk snapshot fields, including biomes, lighting, heightmaps, chunk status, and persistent chunk metadata where present. Use namespaced registry identifiers instead of local numeric registry IDs. Do not omit a field merely because it is absent from the list above.
 
-Use the same complete-state snapshot adapters on the client and server. Missing required state, an unsupported mod-state type, or an unknown hash format makes the cache entry unusable; do not silently hash a partial chunk. Changing this schema or an adapter's state representation requires a new hash/cache-format version. A matching mods manifest is still required. Fields in `data`, `mod_data`, and `extra` retain their schema-defined types and list order.
+Use the same complete-state snapshot adapters on the client and server. Missing required state, an unsupported mod-state type, or an unknown hash format makes the cache entry unusable; do not silently hash a partial chunk. Changing this schema or an adapter's state representation requires a new hash/cache-format version. A matching execution manifest is still required. Fields in `data`, `mod_data`, and `extra` retain their schema-defined types and list order.
 
 Canonical values use these type tags: Byte=1, Short=2, Int=3, Long=4, Float=5, Double=6, ByteArray=7, String=8, List=9, Compound=10, IntArray=11, LongArray=12. Each value starts with its one-byte tag, followed by:
 
