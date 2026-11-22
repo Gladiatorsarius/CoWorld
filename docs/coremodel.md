@@ -22,7 +22,7 @@ Every chunk has exactly one owner, and only the owner ticks it. Everything not o
 
 ## Multiple modded players
 
-Each modded client owns the chunks around itself. Where two ownership areas meet, the real server coordinates the border.
+Each modded client owns the chunks around itself. Where two ownership areas meet, the real server coordinates the border ([multi-client arbitration](multi-client-arbitration.md)).
 
 ## Disconnecting
 
