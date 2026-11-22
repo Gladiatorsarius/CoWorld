@@ -1,0 +1,16 @@
+pluginManagement {
+	repositories {
+		maven {
+			name = 'Fabric'
+			url = 'https://maven.fabricmc.net/'
+		}
+		mavenCentral()
+		gradlePluginPortal()
+	}
+}
+
+// Should match your modid
+rootProject.name = 'coworld_server'
+
+// Shared CoWorld code (protocol, hashes, manifests) built alongside this project
+includeBuild('../Common Mod')
