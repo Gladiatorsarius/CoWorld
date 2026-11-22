@@ -1,7 +1,13 @@
 # CoWorld
 
-CoWorld is a Fabric mod pair (server mod + client mod) for Minecraft 26.3 that lets a small server support many players. Instead of the server ticking every loaded chunk for everyone, each player running the client mod takes over simulating the chunks around them on their own PC. Their computer ticks its surroundings and streams the results back, while the server keeps the authoritative world that all other players see live. Players without the mod connect normally and the server ticks everything for them, exactly like vanilla.
+CoWorld is a Fabric mod pair (server mod + client mod) for Minecraft 26.3 that lets a small server support many players. Players running the client mod can simulate nearby chunks on their own PCs and stream the results back. The real server keeps the authoritative stored world and coordinates ownership instead of ticking every offloaded chunk itself.
+
+The requested ownership radius is `min(client simulation distance, max_ownership_radius)`, in chunks, forming an inclusive square around the player's current chunk. This is a candidate region, not guaranteed ownership: sync and handover must complete, existing owners keep overlapping claims, and connected redstone sets move only as whole units. See [handover](docs/handover.md), [arbitration](docs/multi-client-arbitration.md), and [redstone](docs/redstone.md).
+
+In v1, all players stay connected to the real server. It relays inputs to an offloaded chunk's owner, stores that owner's resulting changes, and relays results to other players. It does not independently simulate the offloaded chunk. The planned v2 adds opt-in direct P2P per owner with relay fallback.
+
+Visitors do not need the CoWorld client mod. They cannot host a sub-server, but can enter already offloaded chunks through the same relay. CoWorld does not remove other mods' client requirements on a modded server. Routine handovers of an unmodded player's occupied chunk are blocked, moving or stationary, with four exceptions: clean owner shutdown, failure reclaim, required redstone consolidation, and transfer to the real server or another eligible sub-server when the old sub-server owner's player is strictly more than the configured default 12 chunks from that chunk, not when the incoming owner is distant. This is not a protection radius around every unmodded player. Keep required transfers' final pause minimal. See [handover](docs/handover.md) and [server configuration](docs/configs.md).
 
 CoWorld is inspired by [MultiPaper](https://github.com/MultiPaper/MultiPaper), which spreads chunk ticking across multiple servers. CoWorld turns the idea around: the extra machines are the players' own PCs.
 
-For the full core model, see [docs/coremodel.md](docs/coremodel.md).
+For the full design, see [docs/coremodel.md](docs/coremodel.md).

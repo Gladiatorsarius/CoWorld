@@ -1,29 +1,41 @@
 # Core model: live chunk simulation offloading
 
-A Fabric mod pair (server mod + client mod) for Minecraft 26.3. When a player with the client mod joins a server running the server mod, the server hands the live simulation of the chunks around that player to the player's own computer. The player's PC ticks its surroundings, and the server keeps the authoritative world. Players without the mod connect normally and the server ticks everything for them, exactly like vanilla.
+CoWorld is a Fabric server/client mod pair for Minecraft 26.3. A player running the client mod can host a sub-server inside their Minecraft process to simulate nearby chunks. The real server keeps the authoritative stored world and coordinates ownership.
+
+Players without CoWorld connect normally and cannot host a sub-server. They stay connected to the real server even inside another player's offloaded chunks. CoWorld is optional for visitors, but a server's other mods can impose their own client requirements.
 
 ## Joining
 
-1. [Handshake](handshake.md): the client announces it has the mod, the server answers.
-2. [Initial sync](sync.md): the server sends its mods folder, then streams its world folder to the client, starting with the chunks around the player and expanding in the background. While this initial sync runs, the server keeps ticking everything.
-3. The client [starts a local server inside the Minecraft process](client-server-bootstrap.md) (like singleplayer's integrated server, but running only the mods the server sent), and loads the downloaded world there. It is created on join and closes with the game. This local server is what simulates the player's surroundings.
-4. Chunk by chunk, as the sync completes, [ownership moves from the real server to the local server](handover.md). From then on, [only changes flow in both directions](delta-sync.md) instead of full chunks.
-5. On later joins, the client [rejoins](rejoin.md) and sends hashes for its cached chunks. The server only re-sends what changed.
+1. [Handshake](handshake.md) checks versions, offloading preferences, capacity, and ping. Accept starts sync, not ownership.
+2. [Initial sync](sync.md) sends a hashed manifest and files from the server's mods folder, then world data nearest the player first, with the rest in the background. These are the sub-server's mods, not the player's own client-mod set.
+3. [Bootstrap](client-server-bootstrap.md) starts the sub-server in the same Minecraft process using its isolated per-server/world cache. Synced data is loaded without authoritative ticking.
+4. [Handover](handover.md) transfers eligible caught-up chunks or whole redstone sets. Readiness is acknowledged while the old owner keeps ticking; only final catch-up and commit require a brief stop at a later tick boundary.
+5. After takeover, [delta sync](delta-sync.md) carries ordered per-tick results and outside inputs. [Rejoin](rejoin.md) revalidates compatible cached content after every fresh handshake, without restoring old ownership grants.
 
-Because each connection starts its own local server inside the game with that server's mods, a player can use this on several different servers.
+## Ownership
 
-## Ownership and ticking
+The requested radius is `min(client simulation distance, max_ownership_radius)`, in chunks. It defines an inclusive square centered on the player's current chunk, not automatic ownership of every loaded chunk. Radius zero means no offloading.
 
-Every chunk has exactly one owner, and only the owner ticks it. Everything not owned by a player's local server stays with the real server. The local server continuously sends its simulation results back, and the real server applies them to the authoritative world, so all other players see the player's actions live.
+Every chunk has exactly one authoritative owner. Only that owner's results modify the authoritative world. Existing claims remain first come, first served under [multi-client arbitration](multi-client-arbitration.md). Connected redstone chunks stay whole and may extend beyond the requested square within the configured set-size cap. Chunks that are not ready, eligible, or committed stay with their current owner.
 
-## Borders
+Use `floor(x/16)` and `floor(z/16)` for position-to-chunk membership, including negative coordinates. A chunk includes its lower boundary and excludes its upper one. Entity/player position, not bounding-box overlap, determines membership.
 
-[The player entity is ticked by whoever owns the chunk they stand in. The real server tracks the player's speed and direction, and when it predicts a border crossing within a short configurable window, both sides simulate the player in parallel (one authoritative, one warm standby), so the crossing is an instant swap with no stutter, even at elytra speed.](player-border-handover.md) [Other entities crossing a border are handed over with their complete state](entity-handover.md). [The real server flags redstone contraptions as connected sets of chunks, and ownership of a set is all-or-nothing, so a contraption is always ticked entirely by one side.](redstone.md)
+Routine chunk handovers in either direction are blocked for the chunk an unmodded player occupies, moving or stationary, not a radius around that player. One occupied member pins a whole redstone set. Exceptions are clean owner shutdown, failure recovery, required conflicting/oversized redstone consolidation, and transfer to the real server or another eligible sub-server when the old sub-server owner's player is more than `vanilla_player_handover_release_distance` chunks from the occupied chunk (default 12, strict `>`, not measured from the incoming owner). [Handover](handover.md#triggers) defines the square chunk-distance and set rules. An unmodded player can still walk into an already offloaded chunk without moving the chunk's ownership.
 
-## Multiple modded players
+## Networking and conflicts
 
-Each modded client owns the chunks around itself. Where two ownership areas meet, the real server coordinates the border ([multi-client arbitration](multi-client-arbitration.md)).
+In v1, the real server relays inputs to the current owner, stores the resulting changes, and relays results to other players. It does not simulate offloaded chunks or merge independently produced block states. Outside effects enter the owner's simulation as inputs, not competing block writes. Nearby unowned caches receive their actual owner's results; distant caches are checked before reuse.
 
-## Disconnecting
+The planned v2 adds opt-in direct P2P per owner with relay fallback. It is not required for v1. General client prediction is not part of this model.
 
-When the player logs off or the game closes, the [disconnect flow hands ownership back to the real server](disconnect.md). The downloaded world stays on the player's PC as a full, playable copy that can also be opened in singleplayer.
+## Borders and explicit shadow exceptions
+
+[Player border handover](player-border-handover.md) predicts crossings and prepares a non-authoritative player warm standby; only one side publishes player results. [Other entities](entity-handover.md) transfer complete state after the source's final tick, before the destination's next logical tick. [Redstone](redstone.md) uses connected ownership sets so a contraption never intentionally ticks under two owners.
+
+Optional [handover verification](handover.md#optional-verification) shadows chunks for debugging. A genuine mismatch selects the old shadow state, which can roll back results. This and player warm standby are explicit non-authoritative simulation exceptions, not shared ownership or normal duplicate server simulation.
+
+## Disconnect and cache
+
+[Disconnect](disconnect.md) cuts player inputs, waits the configured grace period, and holds clean shutdown until hand-back is confirmed. A vanished owner is reclaimed after the heartbeat timeout from the server's latest applied state. Unapplied changes can be lost without a fixed one-second bound.
+
+The cache stays on disk for rejoin and can be used as a local singleplayer copy, but background sync may still be incomplete. Local edits or ahead-of-server state never overwrite the real server during rejoin. Stable server/world identity, matching versions/mod hashes, and verified content determine reuse.

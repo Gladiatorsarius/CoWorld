@@ -1,37 +1,29 @@
 # Client server bootstrap
 
-## What it's for
+## Start conditions
 
-Once the mods and the surrounding chunks are synced, the client starts the sub-server inside the running Minecraft process. This is the same mechanism singleplayer already uses: opening a singleplayer world starts an integrated server inside the game process and the client connects to it internally. The sub-server reuses that, nothing new is invented.
+After an accepted [handshake](handshake.md), sync the server mods and required chunks through [initial sync](sync.md) or [rejoin](rejoin.md). Start a sub-server inside the running Minecraft process, like an integrated singleplayer server, without giving it chunk ownership yet.
 
-## When it starts
+Required chunks must have a verified snapshot plus ordered changes through an identified completed tick/version. A completed download or hash match alone is not enough. Existing owners keep ticking until [handover](handover.md) commits each eligible chunk or whole redstone set.
 
-It starts as soon as (a) the server's mods are synced and (b) every chunk inside the ownership radius is synced and caught up. Caught up means the chunk snapshot plus every change the real server made since, applied in order. The background stream of the rest of the world keeps running after.
+## Region and data
 
-## Why not wait for the whole world
+The requested region is an inclusive square around the player's current chunk, with radius `min(client simulation distance, max_ownership_radius)` in chunks. Existing claims clip it, redstone sets remain whole and may extend it, and an unmodded player occupying a chunk blocks routine transfer of that chunk, whether moving or stationary, subject to the four [handover exceptions](handover.md#triggers). The sub-server ticks only its actual committed ownership, not the whole square or every chunk loaded in its cache.
 
-Waiting for a full world copy would delay offloading by minutes to hours on large worlds and waste disk, with no correctness gain. The sub-server only ever ticks inside the fully synced ownership bubble, and everything past the bubble edge is handled by the border design.
+Load world data and the server-sent mods from this connection's isolated server/world cache directory under the game directory. The cache has separate mods/world data and integrity metadata; [sync](sync.md#storage-and-identity) defines its identity and reuse rules. It is not the live real-server path. The player's own client mods remain separate from the sub-server mod set.
 
-## What it runs
+The rest of the world can keep streaming in the background. Requiring every distant chunk before startup would delay offloading without making the owned region safer.
 
-Only the mods the server sent, loaded from that server's cache folder. The player's own client mods keep running as usual and never mix with them.
+## Lifecycle and networking
 
-## What it loads
+The stages are negotiation, sync/revalidation, startup without ownership, handover, active simulation, then hand-back and shutdown. Accepted sessions do not tick until handover completes. In v1, player inputs and simulation results route through the real server, including other players visiting the owned chunks; it stores and relays results without ticking those chunks itself.
 
-The cached world copy. At the start it ticks nothing. Ownership moves chunk by chunk (see the ownership handover design), and it only ever ticks chunks it owns.
+On clean disconnect, stop the player's inputs, wait `disconnect_grace_ticks` (20), then hand back ownership. The mod keeps the game open until the server confirms completion, even on a slow connection. See [disconnect](disconnect.md). Each connection uses separate cached server/world data; no sub-server runs after its Minecraft process exits.
 
-## How players reach it
+## TPS guard
 
-Players inside its owned chunks talk to it through the real server.
+`min_subserver_tps` defaults to 20. Measure completed sub-server ticks per actual elapsed second over each `subserver_tps_window_ticks` window (default 100 real-server ticks). Equality passes; a lower rate fails. Each failed window reduces the effective requested radius by one chunk. At zero, return remaining ownership, using the transfer and occupied-chunk rules rather than silently dropping state.
 
-## Lifecycle
+## Failure
 
-Created on join, closes when the player logs off or closes the game. Nothing keeps running in the background. Each server connection starts its own sub-server, and they never share mods or worlds.
-
-## Performance guard
-
-The sub-server shares the game process, so its tick health is watched. If it cannot hold the configured minimum TPS, the real server shrinks the ownership radius or takes chunks back instead of letting the game stutter.
-
-## Crash rule
-
-If the sub-server crashes, ownership snaps back to the real server and the player keeps playing. Worst case is a short hiccup, never a lost world or a kicked player.
+If a sub-server-only crash can be reported while the client connection survives, the real server invalidates its ownership and immediately reclaims from the latest applied state. If the entire game/connection vanishes, use the 600-tick heartbeat timeout. In-flight unapplied changes can be lost; neither a crash-free client nor uninterrupted play after a whole-process crash is guaranteed. Cache reconciliation always uses the real server's state.

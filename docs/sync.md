@@ -2,24 +2,34 @@
 
 ## Purpose
 
-After the handshake says Accept, the sub-server needs two things before it can tick anything: the server's mods and the world. While this runs, the player keeps playing completely normally: the real server shows them the world and ticks everything like vanilla.
+After Accept, sync the server's mods-folder files and world data into an isolated per-server cache. The player's own client mods are not the sub-server's mod set. The player keeps using the real server while sync runs; no downloaded chunk becomes owned merely because it arrived.
 
-## Transfer order
+## Order
 
-1. **Mods manifest:** A list of every mod file on the server, with a hash and size. The client compares it with what it already has cached and tells the server which files it needs. Only missing or changed mods are sent.
-2. **Chunks around the player:** The world streams as a spiral starting at the player's position and going out to the ownership radius. These come first because the sub-server needs them to take over.
-3. **The rest of the world:** It streams in the background afterwards, throttled by the sync speed limit from the handshake so the game never lags.
+1. Send a manifest with each server mod file's path, hash, and size. Validate cached files and transfer missing or changed files. The completed manifest identifies the server mod set used for cache compatibility.
+2. Stream world chunks nearest the player's current chunk first, expanding through the requested ownership square. Radius is `min(client simulation distance, max_ownership_radius)`, measured in chunks. The inclusive square uses chunk-coordinate offsets within that radius on both axes. Movement direction gets priority.
+3. Continue the remaining world data in the background, subject to the client's disk allowance and combined per-client `sync_speed_limit` in transmitted bytes/second. Starting offloading does not require the entire world to be downloaded.
 
-## Keeping the world consistent
+At radius zero, no ownership is requested. Existing claims can clip the square; connected redstone sets can extend it. See [handover](handover.md) and [redstone](redstone.md).
 
-The real server keeps ticking while the world streams, so a chunk received 30 seconds ago is already outdated. Every chunk is sent with a version number. From the moment a chunk is sent, the server queues every change to it and sends those deltas to the client. The sub-server applies them in order. A chunk is caught up only when its snapshot and all queued deltas have been applied.
+## Snapshot and delta ordering
 
-Only then can ownership move (see the ownership handover design).
+Capture a complete chunk snapshot at the end of an identified tick N, with its chunk version V. Capturing that boundary and starting delta tracking are one consistent operation: every later change is queued, including changes made while the snapshot is still in transit.
 
-## Storage on the player's PC
+Install the snapshot first, then apply deltas after V in version order. Buffer later arrivals until their predecessors exist; do not apply a delta to an older, unrelated snapshot. A missing version invokes [resend or fresh-snapshot recovery](delta-sync.md#ordering-and-recovery).
 
-The client keeps a per-server cache folder for the world and mods, identified by the server. This makes rejoining fast because the rejoin design hashes against this cache. The disk limit from the handshake caps it; the oldest unused server cache gets cleaned first.
+Caught up means the snapshot and all subsequent deltas through an explicitly identified completed tick/version have been applied. It does not mean the client can tick freely or that the source has stopped changing. [Handover](handover.md) performs a final catch-up at its later stop boundary before changing authority.
 
-## Failure rules
+## Storage and identity
 
-If sync dies mid-way, nothing breaks. The server owns and ticks everything, and the player keeps playing vanilla. The next join resumes instead of starting over.
+Store a separate cache directory under the game directory for each stable server UUID + world UUID. It contains separate mods and world data plus an integrity/compatibility manifest. Dimension and chunk X/Z identify chunks within it. A session ID or a matching hostname alone is not proof that cached world data belongs to this world.
+
+The manifest records CoWorld, Minecraft and cache-format versions, the server mods manifest, and completed verified content. Only atomically completed writes with matching hashes are reusable. Interrupted or unverified temporary data is not marked complete. Exact directory spelling is an implementation detail; neither the real server's live disk path nor another server's cache is the sub-server's data directory.
+
+The client's disk allowance caps cached storage. Evict whole inactive server caches least recently used first; never evict the active connection's cache. If the active working data cannot fit, decline/stop offloading rather than silently deleting live state. A disk allowance does not promise a complete offline world: background transfer may be incomplete.
+
+## Failure and resume
+
+Before ownership transfer, a sync failure leaves ownership unchanged and normal play continues through the real server. A reconnect runs a fresh handshake, revalidates completed cached files/chunks and their compatibility, and resumes from verified content. It never trusts an interrupted write or resumes an old ownership/session grant.
+
+Once chunks have transferred, a later transfer/sync failure does not silently change their owner. Use [handover](handover.md) or [disconnect recovery](disconnect.md). Locally cached world data can be retained for rejoin or singleplayer, but local edits never overwrite the real server during reconciliation.

@@ -1,17 +1,23 @@
 # Entity handover
 
-## What it's for
+## Ownership and trigger
 
-Everything that moves and isn't a player (mobs, dropped items, arrows, minecarts, boats) crossing an ownership border gets handed over with its complete state.
+Non-player entities include mobs, items, projectiles, boats, and minecarts. The authoritative owner is the owner of the chunk containing the entity's position, not every chunk touched by its bounding box.
 
-## How it works
+Use `floor(x / 16)` and `floor(z / 16)`, including negative coordinates. Each chunk includes its lower coordinate boundary and excludes its upper one. A position exactly at a shared edge belongs to the chunk beginning there. Moving between chunks with the same owner needs no handover; moving to a different owner does. Transfers between sub-servers route through the real server in v1.
 
-1. Trigger: an entity's position crosses into a chunk the other side owns.
-2. At the next tick boundary the old owner serializes the entity's complete state (its full NBT: position, rotation, the velocity vector, health, AI state, passengers, the works) and hands it over. The new owner spawns it at tick N+1 and ticks on, the old owner removes it. Same boundary rule as chunks and players.
-3. No prediction or shadow ticks needed here. A single entity is a few KB and the swap lands within one tick, so even a watched mob doesn't visibly stutter. Since the motion is included, an arrow keeps flying with the exact same speed and direction on the new side, and a mob keeps its momentum. Nothing restarts from a standstill.
-4. Riders transfer as one unit: a player isn't part of this (see the player border handover), but a zombie riding a chicken, a mob stack, a leashed animal, all move together with their full relationships intact.
-5. AI that points at blocks stays valid: a villager's workstation, a bee's hive. Those are just block positions, and both sides hold the full world state, so the brain keeps working after the handover. Only the entity moves, never the blocks.
+## Tick ordering and state
 
-## Edge case
+The source finishes tick N, including movement into the destination chunk. At that boundary it stops ticking the transferred entity and sends its complete transferable state: full NBT plus position, rotation, velocity, health, AI state, and rider/passenger/leash relationships needed to continue it. Complete state means restoring the same entity, not spawning a fresh default mob with only its location copied.
 
-An entity pushed back and forth exactly on the border. Ownership is decided by the chunk its position is in, and the handover is cheap, so bouncing costs a couple of tiny transfers, nothing more.
+The destination installs that final state before starting logical tick N+1. The old owner removes its authoritative entity instance and cannot publish further results for it. There must be no duplicate authoritative tick and no skipped logical tick. State may take wall-clock time to arrive; the transfer is small but a one-tick wall-clock latency bound is not guaranteed. Chunk handovers and generation validation follow [ownership handover](handover.md).
+
+No entity prediction or shadow simulation is required. Velocity and rotation continue from the source instead of restarting movement from a standstill.
+
+## Related entities and block references
+
+Non-player riders/passengers and their relationships transfer as one unit rather than splitting a riding stack between owners. Preserve leash references as part of the complete relationship state. Player authority, including a player involved in a crossing, follows [player border handover](player-border-handover.md); it is not duplicated as a non-player passenger.
+
+AI references to blocks, such as a workstation or hive, retain their dimension and block positions. Those blocks do not move with the entity. This does not imply every cache has a current full world: nearby unowned state and outside inputs follow [delta sync](delta-sync.md); distant cached chunks must be checked before active reuse.
+
+Repeated crossings can cause repeated small transfers. Exact-edge ownership still follows the same coordinate rule, not an arbitrary owner choice or a new distance margin.

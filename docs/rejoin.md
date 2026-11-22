@@ -1,21 +1,22 @@
 # Rejoin
 
-## What it's for
+## Purpose
 
-When a player comes back after logging out, their client still has the whole cached world from last time. Instead of re-downloading everything, we find what changed while they were gone and sync only that.
+Reuse a verified compatible cache after a fresh [handshake](handshake.md), without downloading unchanged chunks again. Cache reuse does not restore the last session's ownership.
 
-## Where it fits
+## Compatibility
 
-Rejoin runs right after the handshake. The handshake gets one addition: the client says "I have a cache from a previous session" and which mod version that cache is from. If it does, the server skips the full initial sync and goes straight to the hash exchange below. If it doesn't (first join, wiped cache, old mod version), the handshake is exactly as before and the full initial sync runs. Nothing else in the handshake changes.
+Hello reports the previous cache and its metadata. Reuse requires the same server UUID and world UUID, matching CoWorld and Minecraft versions, matching server mods manifest hashes, matching cache-format version, and intact cached data. Validate mod files through their manifest hashes. Missing, corrupt, older-version, or otherwise incompatible caches take [initial sync](sync.md).
 
-## How it works
+Live CoWorld/protocol incompatibility declines offloading; incompatible cached data only changes the sync path. A cached world played in singleplayer is not authoritative and must pass the same comparison.
 
-1. On rejoin, the client sends the server one hash per cached chunk for the active area (the ownership bubble plus view range). The rest of the cached world stays lazy: it gets hash-checked later as the player approaches, exactly like the far-chunk rule in delta sync.
-2. The server compares each hash against its current state. Unchanged chunk: confirmed from cache, zero data sent. Changed chunk: the server re-sends that full chunk once, then the normal delta stream takes over again. (Deltas-since-your-version would need the server to store its whole change history, not worth it. A changed chunk is a few KB.)
-3. Order: chunks around the player first, then the rest of the view range, movement direction gets priority, same as the initial sync.
-4. Once the active area is caught up, the ownership bubble hands over again, exactly per the handover design.
-5. Chunks never seen before just take the normal initial-sync path.
+## Active area and hashes
 
-## Fallback
+The active area is the union of the requested ownership square and the player's current view area in the current dimension, not the sum of the two radii. The square is centered on the player's chunk with inclusive chunk-coordinate radius `min(client simulation distance, max_ownership_radius)`. Redstone chunks needed for a whole-set handover must also be synced before that transfer.
 
-If the cache is corrupted or from an older mod version, the client drops it and does a full initial sync instead.
+1. The client sends one hash for each completed cached chunk in this area, keyed by dimension and chunk X/Z. Hash the chunk's complete transferable state with the same canonical representation used by the server, excluding transport/session metadata.
+2. The real server compares against a consistent completed-tick snapshot of its authoritative stored chunk state. A matching hash confirms that snapshot/version without resending its payload. A differing hash makes the server send the full chunk; missing chunks use the same initial-sync snapshot path. Cached state is never uploaded to replace the server's version.
+3. For both matches and replacements, track changes from the comparison/snapshot boundary and apply them in order. A hash match alone is not proof of remaining current while the world ticks. Use the snapshot/delta and caught-up rules in [sync](sync.md#snapshot-and-delta-ordering).
+4. Prioritize the player's surroundings, then the remaining view area, with movement direction first. Once the sub-server is ready, eligible caught-up chunks use [ownership handover](handover.md). Other visible chunks remain cached without becoming owned.
+
+Cached chunks outside the active area stay lazy and can be stale. Hash-check them before they enter active use as the player approaches. A changed chunk needs a fresh snapshot, not an assumption that the server retained all deltas since the last session.

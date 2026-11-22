@@ -1,15 +1,31 @@
 # Server configuration
 
-This list grows as more parts of the design are locked in.
+Time windows use real-server ticks and `_ticks` names. Seconds below assume 20 TPS; lag can lengthen wall-clock waits. Packet simulation tick numbers are separate from these timeout counters. Positive integer windows are required except where 0 explicitly disables a feature. Unset defaults below remain unchosen, not hidden fallback values.
 
-- `max_ping`: Highest ping, in milliseconds, a sub-server owner may have. Checked during the handshake using the median of three pings, then monitored during the session. **Default:** 150 ms (suggested).
-- `max_ownership_radius`: Server-side cap on how big any ownership area may be. The actual radius per player is the minimum of their simulation distance and this cap. **Default:** not set yet.
-- `sync_speed_limit`: Maximum bandwidth for the initial world and mods sync per client. Sent in the handshake Accept. **Default:** not set yet.
-- `offload_enabled`: Master switch for offloading on this server. When off, every client plays vanilla. **Default:** not set yet.
-- `max_sub_servers`: Maximum number of sub-servers the real server supports at once. New owners beyond the cap are declined and play vanilla. **Default:** not set yet.
-- `redstone_takeover_max_chunks`: The largest redstone contraption set (in chunks) that can move to a sub-server; bigger sets stay entirely with the real server. **Default:** 64.
-- `min_subserver_tps`: TPS a sub-server must hold. If it falls below this value, the real server shrinks its ownership radius or takes chunks back. **Default:** 20.
-- `player_handover_prediction_ticks`: How many ticks ahead a predicted player border crossing starts the parallel simulation. **Default:** 40 (2 seconds).
-- `handover_verification_ticks`: After a handover, both sides tick the chunk in parallel for this many ticks and compare core block state; a real mismatch hands the chunk back. Debugging tool; doubles tick work while active. **Default:** 0 (off).
-- `disconnect_grace_ticks`: After a clean disconnect, how long the sub-server waits before starting the hand-back to the real server; the mod holds the game open until the server confirms completion. **Default:** 20 (1 second).
-- `disconnect_timeout_ticks`: How long the real server waits without a sub-server heartbeat before reclaiming its chunks; those chunks freeze until then. **Default:** 600 (30 seconds).
+## Admission and ownership
+
+- `offload_enabled`: Boolean master switch. When false, decline new offloading and request normal hand-back from existing owners; players continue through the real server. Transfers still obey the occupied-chunk and failure rules. **Default:** not set yet.
+- `max_sub_servers`: Maximum simultaneous sub-server instances, including startup and hand-back. A new instance at the cap is declined, without kicking its player. **Unit:** instances. **Default:** not set yet.
+- `max_ping`: Maximum accepted round-trip time. Handshake uses the median of three completed probes. A value equal to the limit passes; only a larger value fails. Ongoing monitoring uses Minecraft's built-in player ping measurement. **Unit:** milliseconds. **Default:** 150 ms (suggested).
+- `high_ping_ticks`: Consecutive real-server ticks for which the current monitored ping must exceed `max_ping` before hand-back begins. A measurement at or below the limit resets the counter. **Default:** 100 (5 seconds).
+- `max_ownership_radius`: Nonnegative integer cap, in chunks. Requested radius is the minimum of this cap and client simulation distance. The square includes offsets satisfying `abs(dx) <= radius` and `abs(dz) <= radius`. A radius of 0 disables offloading for that client. Claims, unmodded-player occupied-chunk rule, and whole-redstone-set rules constrain actual ownership; redstone sets may extend beyond the square. **Default:** not set yet.
+- `vanilla_player_handover_release_distance`: Positive integer distance, in chunks, for releasing an unmodded-player-occupied chunk when its old sub-server owner's player moves away. Measure `max(abs(dx), abs(dz))` from that old owner's player chunk to the occupied chunk in the same dimension, not from a prospective new owner. Strictly greater than the threshold permits transfer to the real server or another eligible sub-server; equality remains protected. The real server has no owner-player position and cannot qualify through this distance exception alone. Moving and stationary occupants have the same rule. One occupied member pins a whole redstone set unless every occupied member qualifies for release. Clean shutdown, failure reclaim, and required redstone consolidation remain exceptions. **Default:** 12.
+- `redstone_takeover_max_chunks`: Maximum number of distinct chunks in a transferable redstone set. Equality is allowed; larger sets stay entirely server-owned. **Unit:** chunks. **Default:** 64.
+
+## Transfer and liveness
+
+- `sync_speed_limit`: Maximum per-client wire-payload bytes per second for combined mods/world sync traffic, including snapshot/resync data. Compression is accounted for at transmitted size. It is not a per-file allowance and does not delay gameplay inputs, live deltas, or heartbeats. Sent in Accept. **Default:** not set yet.
+- `handshake_hello_timeout_ticks`: Wait from login for Hello before treating the connection as a normal non-offloading client. **Default:** 100 (5 seconds).
+- `ping_probe_timeout_ticks`: Maximum wait for each of the three handshake probe replies. An expired or invalid probe declines offloading; do not invent a ping sample or continue with fewer than three. **Default:** 100 (5 seconds).
+- `handover_offer_timeout_ticks`: Maximum time for one uncommitted handover attempt, from offer through final readiness/commit. At expiry, an uncommitted attempt aborts and the old owner retains authority. Clean disconnect retries without an overall shutdown deadline. **Default:** 100 (5 seconds).
+- `disconnect_grace_ticks`: Wait after player inputs are cut before clean hand-back starts. The sub-server continues its owned simulation during this wait. **Default:** 20 (1 second).
+- `disconnect_timeout_ticks`: Real-server ticks since the last valid per-cycle heartbeat before reclaiming a vanished owner's chunks. Receiving a valid heartbeat resets the counter. Reclaim occurs when the counter reaches the limit. **Default:** 600 (30 seconds).
+
+## Performance and verification
+
+- `min_subserver_tps`: Minimum completed sub-server ticks per elapsed second over the measurement window. Equality passes; below the threshold fails. **Unit:** ticks/second. **Default:** 20.
+- `subserver_tps_window_ticks`: Non-overlapping observation windows of this many real-server ticks. TPS is completed sub-server ticks divided by the window's actual elapsed seconds, not an assumption that the window lasted five seconds. Each failed window reduces the effective requested radius by one chunk. At zero, hand back remaining ownership. Actual transfers obey the occupied-chunk and whole-set rules. **Default:** 100 (5 seconds at 20 server TPS).
+- `player_handover_prediction_ticks`: Predicted time-to-crossing threshold, in simulation ticks. A crossing at or within the threshold starts player warm standby. **Default:** 40 (2 seconds).
+- `handover_verification_ticks`: Logical ticks of post-transfer shadow comparison. 0 disables it. A mismatch selects the old shadow state and returns authority, allowing debug-only rollback. See [handover](handover.md#optional-verification). **Default:** 0.
+
+Resend history is bounded. Its exact retention size, like the defaults marked unset above, is not fixed yet; correctness must not depend on a retained delta because a full snapshot is the fallback. See [delta sync](delta-sync.md).
