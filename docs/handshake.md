@@ -7,6 +7,7 @@ When a modded client joins a modded server, both sides find out whether the othe
 ## Steps
 
 1. The client joins normally and sends a **CoWorld Hello** packet containing its mod version, protocol version, and settings: whether it allows offloading, how much disk space it is willing to use, its simulation distance, and (in v2) whether it allows direct P2P.
+   The client also reports whether it holds a usable cache from a previous session and, if so, the cache's mod version; if it does, the server proceeds to [rejoin](rejoin.md) instead of the full initial sync.
 2. The server sends a **Ping** packet. The client returns it immediately, unchanged. The server does this three times and takes the median round-trip time (RTT).
 3. The server decides:
    - **Accept:** sends the protocol version to use, the ownership radius in chunks (the minimum of the client simulation distance and the server's `max_ownership_radius` cap), sync speed limit, and a session ID. The session ID identifies this sub-server session and is needed later for relaying and rejoining.

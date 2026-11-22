@@ -8,7 +8,7 @@ A Fabric mod pair (server mod + client mod) for Minecraft 26.3. When a player wi
 2. [Initial sync](sync.md): the server sends its mods folder, then streams its world folder to the client, starting with the chunks around the player and expanding in the background. While this initial sync runs, the server keeps ticking everything.
 3. The client [starts a local server inside the Minecraft process](client-server-bootstrap.md) (like singleplayer's integrated server, but running only the mods the server sent), and loads the downloaded world there. It is created on join and closes with the game. This local server is what simulates the player's surroundings.
 4. Chunk by chunk, as the sync completes, [ownership moves from the real server to the local server](handover.md). From then on, [only changes flow in both directions](delta-sync.md) instead of full chunks.
-5. On later joins, the client hashes the world and mods it already has and sends the hashes. The server only re-sends what changed since.
+5. On later joins, the client [rejoins](rejoin.md) and sends hashes for its cached chunks. The server only re-sends what changed.
 
 Because each connection starts its own local server inside the game with that server's mods, a player can use this on several different servers.
 
