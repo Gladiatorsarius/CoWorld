@@ -18,7 +18,7 @@ Every chunk has exactly one owner, and only the owner ticks it. Everything not o
 
 ## Borders
 
-[The player entity is ticked by whoever owns the chunk they stand in. The real server tracks the player's speed and direction, and when it predicts a border crossing within a short configurable window, both sides simulate the player in parallel (one authoritative, one warm standby), so the crossing is an instant swap with no stutter, even at elytra speed.](player-border-handover.md) [Other entities crossing a border are handed over with their complete state](entity-handover.md). A redstone contraption spanning a border is always ticked entirely by one side: whichever side first needs to tick into foreign territory takes ownership of the contraption's whole connected set of chunks.
+[The player entity is ticked by whoever owns the chunk they stand in. The real server tracks the player's speed and direction, and when it predicts a border crossing within a short configurable window, both sides simulate the player in parallel (one authoritative, one warm standby), so the crossing is an instant swap with no stutter, even at elytra speed.](player-border-handover.md) [Other entities crossing a border are handed over with their complete state](entity-handover.md). [The real server flags redstone contraptions as connected sets of chunks, and ownership of a set is all-or-nothing, so a contraption is always ticked entirely by one side.](redstone.md)
 
 ## Multiple modded players
 
