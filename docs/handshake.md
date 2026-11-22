@@ -14,11 +14,19 @@ Immediately after normal login, negotiate CoWorld over custom packets on the exi
 
 ## Compatibility and cache validity
 
-V1 requires matching CoWorld and protocol versions. There is no implicit downgrade or selection based only on the lowest version number. An unsupported live protocol/version declines offloading.
+The protocol version is a wire-format compatibility identifier, separate from the CoWorld release version. V1 requires matching CoWorld and protocol versions. There is no implicit downgrade or selection based only on the lowest version number. An unsupported live protocol/version declines offloading.
 
 Cache reuse additionally requires matching Minecraft version, server mods manifest hashes, and cache-format version. The server/world identity must match, and cached content must pass integrity validation. A cache from an older or otherwise incompatible version goes through full initial sync; it does not make an otherwise compatible live connection fail.
 
 A chunk hash mismatch means that chunk's cached content differs from the server, not that the protocol is incompatible. [Rejoin](rejoin.md) replaces it with the server's chunk. The cache declaration in Hello is a claim to validate, not proof of usability.
+
+V2 protocol selection and compatibility are not specified yet. The planned direct-P2P transport does not imply compatibility with v1 or permission to downgrade. A separate versioned protocol specification must define supported versions and negotiation before v2 ships; v1 does not negotiate a future v2 protocol.
+
+## Disk allowance
+
+Hello's disk allowance is a nonnegative integer number of bytes. It caps all CoWorld cache data across server/world directories: mods, world state, compatibility/integrity manifests, and temporary or incomplete writes. Account for stored file lengths, not compressed network sizes. Zero provides no cache budget and declines offloading; it never means unlimited. Missing, negative, or noninteger allowance is invalid and declines offloading without kicking the player.
+
+Reserve space within the allowance before writing, including simultaneous old and replacement files during atomic replacement. Use the existing [inactive-cache eviction and insufficient-space rules](sync.md#storage-and-identity). The allowance cannot override actual free disk space; an allocation/write failure leaves normal play on the real server and uses the existing sync or recovery path.
 
 ## Ping and deadlines
 

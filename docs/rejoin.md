@@ -12,11 +12,41 @@ Live CoWorld/protocol incompatibility declines offloading; incompatible cached d
 
 ## Active area and hashes
 
-The active area is the union of the requested ownership square and the player's current view area in the current dimension, not the sum of the two radii. The square is centered on the player's chunk with inclusive chunk-coordinate radius `min(client simulation distance, max_ownership_radius)`. Redstone chunks needed for a whole-set handover must also be synced before that transfer.
+The active area is the union of the requested ownership square and the player's current view area in the current dimension, not the sum of the two radii. Both squares are centered on `floor(player_x / 16), floor(player_z / 16)`, including negative coordinates. The ownership radius is `min(client simulation distance, max_ownership_radius)`, before any [session-local TPS reduction](configs.md#performance-and-verification). The view radius is `min(client view distance, server view-distance cap)`, a nonnegative integer number of chunks. A chunk belongs to either square when `abs(dx) <= its radius` and `abs(dz) <= its radius`; include edges and corners. Radius 0 includes the center chunk for view/cache coverage, but still requests no offloading when the ownership radius is 0. These are cache-coverage squares, not a change to vanilla rendering or ownership rules. Recompute them after chunk movement, dimension changes, or either distance changing. Redstone chunks needed for a whole-set handover must also be synced before that transfer.
 
-1. The client sends one hash for each completed cached chunk in this area, keyed by dimension and chunk X/Z. Hash the chunk's complete transferable state with the same canonical representation used by the server, excluding transport/session metadata.
+1. The client sends one hash for each completed cached chunk in this area, keyed by dimension and chunk X/Z. Use the canonical state encoding below on both sides.
 2. The real server compares against a consistent completed-tick snapshot of its authoritative stored chunk state. A matching hash confirms that snapshot/version without resending its payload. A differing hash makes the server send the full chunk; missing chunks use the same initial-sync snapshot path. Cached state is never uploaded to replace the server's version.
 3. For both matches and replacements, track changes from the comparison/snapshot boundary and apply them in order. A hash match alone is not proof of remaining current while the world ticks. Use the snapshot/delta and caught-up rules in [sync](sync.md#snapshot-and-delta-ordering).
-4. Prioritize the player's surroundings, then the remaining view area, with movement direction first. Once the sub-server is ready, eligible caught-up chunks use [ownership handover](handover.md). Other visible chunks remain cached without becoming owned.
+4. Use the exact [sync queue order](sync.md#deterministic-chunk-order): requested ownership chunks, then the remaining view area, with nearest rings and movement direction ordered deterministically. Once the sub-server is ready, eligible caught-up chunks use [ownership handover](handover.md). Other visible chunks remain cached without becoming owned.
 
 Cached chunks outside the active area stay lazy and can be stale. Hash-check them before they enter active use as the player approaches. A changed chunk needs a fresh snapshot, not an assumption that the server retained all deltas since the last session.
+
+## Canonical chunk hash, format 1
+
+Compute SHA-256 over the uncompressed bytes of one canonical compound value defined below. Send the 32 digest bytes; a text diagnostic uses exactly 64 lowercase hexadecimal characters. This is a content hash, not a hash of region-file bytes, compression output, runtime object addresses, or a transport packet.
+
+The root has these fields, including empty collections:
+
+- `hash_format`: Int value 1.
+- `dimension`: String containing the full namespaced dimension identifier.
+- `chunk_x`, `chunk_z`: Int chunk coordinates.
+- `blocks`: List of compounds `{x: Int, y: Int, z: Int, state: String, properties: Compound}` for every block position within the dimension's build height. X/Z are local 0 through 15; Y is absolute. Include air, use full namespaced block identifiers, and represent property values as strings. Sort by `(y, z, x)`. Do not hash palette indexes or runtime registry numbers.
+- `block_entities`: List of compounds `{x: Int, y: Int, z: Int, data: Compound}` with absolute coordinates and complete saved/transferable data, sorted by `(y, z, x)`.
+- `entities`: List of compounds `{uuid: ByteArray, data: Compound}`. UUID is exactly 16 bytes, most-significant byte first; data is the complete transferable entity state, including type, position, rotation, velocity, health, inventory, effects, AI state, and rider/passenger/leash references. Sort top-level entities by unsigned 128-bit UUID; encode relationship references by UUID and retain meaningful passenger order. Include each entity once, assigned by its position's chunk, not bounding-box overlap.
+- `block_ticks`, `fluid_ticks`: Lists of compounds `{target: String, x: Int, y: Int, z: Int, due_tick: Long, priority: Int, order: Long}`. Target is the full namespaced block/fluid identifier, position is absolute, and order is the simulation's execution-order key. Preserve execution order, including equal-time ordering; do not replace absolute due ticks with time-to-arrival or discard ordering keys.
+- `redstone`, `random`: Compounds holding the complete additional transferable redstone and random-generator continuation state. Blocks/block entities remain present even when they also carry redstone data.
+- `mod_data`: Compound keyed by full namespaced mod-data identifier, containing all mod-provided state needed to restore the chunk and its simulation.
+- `extra`: Compound containing all other transferable chunk snapshot fields, including biomes, lighting, heightmaps, chunk status, and persistent chunk metadata where present. Use namespaced registry identifiers instead of local numeric registry IDs. Do not omit a field merely because it is absent from the list above.
+
+Use the same complete-state snapshot adapters on the client and server. Missing required state, an unsupported mod-state type, or an unknown hash format makes the cache entry unusable; do not silently hash a partial chunk. Changing this schema or an adapter's state representation requires a new hash/cache-format version. A matching mods manifest is still required. Fields in `data`, `mod_data`, and `extra` retain their schema-defined types and list order.
+
+Canonical values use these type tags: Byte=1, Short=2, Int=3, Long=4, Float=5, Double=6, ByteArray=7, String=8, List=9, Compound=10, IntArray=11, LongArray=12. Each value starts with its one-byte tag, followed by:
+
+- Byte/Short/Int/Long: respectively 1/2/4/8 bytes, signed two's-complement, big-endian.
+- Float/Double: respectively 4/8 bytes, big-endian IEEE-754 bits as stored. Preserve signed zero and NaN payload bits; do not stringify or round numbers.
+- String: unsigned 32-bit big-endian UTF-8 byte length, then those bytes, with no terminator or Unicode normalization. Reject invalid Unicode rather than replacing characters.
+- ByteArray: unsigned 32-bit big-endian element count, then raw bytes. IntArray/LongArray: the same count prefix, then 4/8-byte signed big-endian elements, with no per-element tag.
+- List: unsigned 32-bit big-endian element count, then each complete tagged value in order. Preserve order except for the explicitly sorted root lists above. An empty list has count 0 and no element-type byte.
+- Compound: unsigned 32-bit big-endian entry count, then entries sorted by unsigned lexicographic UTF-8 key bytes. Each entry is its key encoded as a String payload without a tag, then its complete tagged value. Reject duplicate keys. An empty compound has count 0; no end tag or root name is written.
+
+A value/count that cannot be represented by these rules is not hashable in format 1. There is no whitespace, padding, compression header, or other framing in the hash input. Exclude server/session IDs, transport headers, packet sequence numbers, chunk versions, owner generations, and snapshot-boundary tick envelopes. Include tick values that are part of simulation state, such as scheduled due ticks. Hash the same completed-state boundary on both sides; retain its tick/version alongside the digest for catch-up, not inside the content envelope.
