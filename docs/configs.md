@@ -11,3 +11,5 @@ This list grows as more parts of the design are locked in.
 - `min_subserver_tps`: TPS a sub-server must hold. If it falls below this value, the real server shrinks its ownership radius or takes chunks back. **Default:** 20.
 - `player_handover_prediction_ticks`: How many ticks ahead a predicted player border crossing starts the parallel simulation. **Default:** 40 (2 seconds).
 - `handover_verification_ticks`: After a handover, both sides tick the chunk in parallel for this many ticks and compare core block state; a real mismatch hands the chunk back. Debugging tool; doubles tick work while active. **Default:** 0 (off).
+- `disconnect_grace_ticks`: After a clean disconnect, how long the sub-server waits before starting the hand-back to the real server; the mod holds the game open until the server confirms completion. **Default:** 20 (1 second).
+- `disconnect_timeout_ticks`: How long the real server waits without a sub-server heartbeat before reclaiming its chunks; those chunks freeze until then. **Default:** 600 (30 seconds).

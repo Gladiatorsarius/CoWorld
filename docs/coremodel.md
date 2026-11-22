@@ -26,4 +26,4 @@ Each modded client owns the chunks around itself. Where two ownership areas meet
 
 ## Disconnecting
 
-When the player logs off or the game closes, the local server closes with it and ownership moves back to the real server, which resumes ticking from the latest state it has. The downloaded world stays on the player's PC as a full, playable copy that can also be opened in singleplayer.
+When the player logs off or the game closes, the [disconnect flow hands ownership back to the real server](disconnect.md). The downloaded world stays on the player's PC as a full, playable copy that can also be opened in singleplayer.
