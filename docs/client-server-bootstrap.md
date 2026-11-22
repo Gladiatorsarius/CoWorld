@@ -8,7 +8,7 @@ Required chunks must have a verified snapshot plus ordered changes through an id
 
 ## Region and data
 
-The requested region is an inclusive square around the player's current chunk, with radius `min(client simulation distance, max_ownership_radius)` in chunks. Existing claims clip it, redstone sets remain whole and may extend it, and an unmodded player occupying a chunk blocks routine transfer of that chunk, whether moving or stationary, subject to the four [handover exceptions](handover.md#triggers). The sub-server ticks only its actual committed ownership, not the whole square or every chunk loaded in its cache.
+The requested region is an inclusive square around the player's current chunk, with radius `min(client simulation distance, max_ownership_radius)` in chunks, less the [session-local TPS reduction](configs.md#performance-and-verification), clamped at zero. Evaluate a connected redstone set as one unit: touching the square can make the whole set a candidate, including members outside the square, but does not override an existing owner's claim. If a member is already committed to another sub-server, do not take an unclaimed fragment of that set. Keep the existing whole-set owner; a topology change joining different owners follows required [redstone consolidation](redstone.md#topology-changes-and-moving-machines). Apply the set-size cap and occupied-chunk restrictions before offering a transfer. An unmodded player occupying a chunk blocks routine transfer of that chunk, whether moving or stationary, subject to the four [handover exceptions](handover.md#triggers). The sub-server ticks only its actual committed ownership, not the whole square or every chunk loaded in its cache.
 
 Load world data and the server-sent mods from this connection's isolated server/world cache directory under the game directory. The cache has separate mods/world data and integrity metadata; [sync](sync.md#storage-and-identity) defines its identity and reuse rules. It is not the live real-server path. The player's own client mods remain separate from the sub-server mod set.
 
@@ -22,7 +22,7 @@ On clean disconnect, stop the player's inputs, wait `disconnect_grace_ticks` (20
 
 ## TPS guard
 
-`min_subserver_tps` defaults to 20. Measure completed sub-server ticks per actual elapsed second over each `subserver_tps_window_ticks` window (default 100 real-server ticks). Equality passes; a lower rate fails. Each failed window reduces the effective requested radius by one chunk. At zero, return remaining ownership, using the transfer and occupied-chunk rules rather than silently dropping state.
+`min_subserver_tps` defaults to 20. Measure completed sub-server ticks per actual elapsed second over each `subserver_tps_window_ticks` window (default 100 real-server ticks). Equality passes; a lower rate fails. Each failed window reduces the effective requested radius by one chunk. At zero, return remaining ownership, using the transfer and occupied-chunk rules rather than silently dropping state. After every reduction, recompute candidates using the same claim clipping, whole-set expansion, size cap, and occupied-chunk checks. Never slice a redstone set at the smaller square boundary: a qualifying set may still extend outside it, while a set no longer requested returns whole when eligible. Until that hand-back commits, its existing owner keeps authority. At zero no set remains requested for offloading.
 
 ## Failure
 

@@ -18,7 +18,7 @@ The protocol version is a wire-format compatibility identifier, separate from th
 
 Cache reuse additionally requires matching Minecraft version, server mods manifest hashes, and cache-format version. The server/world identity must match, and cached content must pass integrity validation. A cache from an older or otherwise incompatible version goes through full initial sync; it does not make an otherwise compatible live connection fail.
 
-A chunk hash mismatch means that chunk's cached content differs from the server, not that the protocol is incompatible. [Rejoin](rejoin.md) replaces it with the server's chunk. The cache declaration in Hello is a claim to validate, not proof of usability.
+A chunk hash mismatch means that chunk's cached content differs from the server, not that the protocol is incompatible. [Rejoin](rejoin.md) replaces it with the server's chunk. The cache declaration in Hello is a claim to validate, not proof of usability. Declare either no previous cache, or the stable server UUID and world UUID, cached CoWorld and Minecraft versions, cache-format/hash-format versions, the snapshot-adapter/schema identity once specified, and the cached server-mods manifest with its file hashes. These identify the compatibility record, not an old ownership grant. Validate them against current server metadata after Accept. Send completed chunk inventory and per-chunk hashes through [rejoin](rejoin.md), not as proof that the whole cache is current in Hello.
 
 V2 protocol selection and compatibility are not specified yet. The planned direct-P2P transport does not imply compatibility with v1 or permission to downgrade. A separate versioned protocol specification must define supported versions and negotiation before v2 ships; v1 does not negotiate a future v2 protocol.
 
@@ -36,6 +36,6 @@ Reserve space within the allowance before writing, including simultaneous old an
 
 ## Session state
 
-Every join runs a fresh handshake. Pending probes and negotiation state are connection-scoped and discarded on disconnect. The accepted session ID identifies the live offloading/relay session; it is not a persistent cache key and is not resumed after reconnect.
+Every join runs a fresh handshake. Pending probes and negotiation state are connection-scoped and discarded on disconnect. The accepted session ID identifies the live offloading/relay session; it is not a persistent cache key and is not resumed after reconnect. Accept's requested radius is a candidate-area limit for sync and later offers, not an allocation of chunks. Existing claims, whole redstone sets, occupancy, current TPS reduction, readiness and coordinated commitment decide actual ownership. The real server remains owner of server-owned chunks until a handover commits; other committed owners likewise retain their claims.
 
 World/mod caches persist under stable server and world identities, as described in [sync](sync.md). If client simulation distance changes, the client reports it and the real server recomputes the requested radius, using normal [handover](handover.md) for eligible changes instead of reconnecting.
