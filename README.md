@@ -11,3 +11,4 @@ Visitors do not need the CoWorld client mod. They cannot host a sub-server, but 
 CoWorld is inspired by [MultiPaper](https://github.com/MultiPaper/MultiPaper), which spreads chunk ticking across multiple servers. CoWorld turns the idea around: the extra machines are the players' own PCs.
 
 For the full design, see [docs/coremodel.md](docs/coremodel.md).
+For the project structure, see [docs/folder-structure.md](docs/folder-structure.md).
