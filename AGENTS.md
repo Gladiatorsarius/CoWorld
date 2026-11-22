@@ -12,6 +12,7 @@ CoWorld ("Client-Offloaded World") is a Fabric mod set for Minecraft 26.3. A ser
 - `docs/folder-structure.md`: the full project tree with every planned class and its one-line purpose. Check it before adding files.
 
 ## Design docs are the contract
+- If you are unsure about the docs or a user's question, ask instead of assuming.
 - When asked to implement something, check the `docs/` folder. If it is covered there, follow the rules in the corresponding doc.
 - If it is not in `docs/`, ask the developer whether a doc should be written for it.
 - If your implementation has to differ from a doc, stop and ask the developer whether that is okay. If approved, update the doc in the same change. Code and docs must never drift apart.
