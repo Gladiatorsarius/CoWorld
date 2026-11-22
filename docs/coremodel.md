@@ -22,6 +22,26 @@ The hosting player's client simulation-distance setting, reported in Hello and o
 
 Every chunk has exactly one authoritative owner. Only that owner's results modify the authoritative world. Existing claims remain first come, first served under [multi-client arbitration](multi-client-arbitration.md). Connected redstone chunks stay whole and may extend beyond the requested square within the configured set-size cap. Chunks that are not ready, eligible, or committed stay with their current owner.
 
+### Simulation distance update
+
+Fabric custom payload ID: `coworld:simulation_distance_update`. It is a post-Accept payload, separate from the five handshake records (Hello, PingProbe, PingEcho, Accept, Decline). It is a bounded, session-bound follow-up, not an ownership-grant packet.
+
+Fields:
+
+- Session ID: 16-byte UUID. It must match the active accepted session.
+- Simulation distance: u32, in chunks. Reject values outside the signed 32-bit server model. Zero is valid.
+- Update sequence: u64, monotonic per live session. Stale or out-of-order updates are ignored.
+
+Behavior: if the client simulation distance changes after Accept, HelloSender sends the update with the active session ID, the bounded distance and a monotonic sequence. An accepted update recomputes the requested ownership radius as `min(client simulation distance, max_ownership_radius)`, applies the session-local TPS reduction, and uses the normal [handover](handover.md) and cache-coverage ([rejoin](rejoin.md)) rules. It never reallocates or revokes committed ownership directly.
+
+Routing: a valid update on the accepted session has no terminal result. The server recomputes the candidate radius and follows the normal handover rules. A stale, out-of-order, malformed or wrong-session update gets no result: the server ignores it and keeps the active session and the last accepted distance.
+
+Server validation: reject stale or out-of-order sequences, and ignore other or missing session IDs. A wrong-session, malformed, replayed or invalid update never alters the active session or committed ownership.
+
+Risks and mitigations: bind every update to the active session ID, enforce the monotonic sequence, and ignore bad updates without changing ownership.
+
+Implementation: `SessionManager` validates each update against the active session and the monotonic sequence, then recomputes the radius through the normal handover rules. `HelloSender` adds a post-Accept sender. Tests: `CoWorldPacketsTest` covers round-trip of the five records plus the separate update, the payload ID, malformed and out-of-range fields, and session/sequence validation. `SessionManagerTest` covers distance-update validation and requested-radius recalculation.
+
 Use `floor(x/16)` and `floor(z/16)` for position-to-chunk membership, including negative coordinates. A chunk includes its lower boundary and excludes its upper one. Entity/player position, not bounding-box overlap, determines membership. Non-player riding/leash groups are the explicit entity-authority exception: all members follow their deterministic lead's position chunk, even when trailing members occupy other chunks. This does not move those chunks' block ownership. Players keep their own position-based authority. See [entity groups](entity-handover.md#related-entities-and-block-references).
 
 Routine chunk handovers in either direction are blocked for the chunk an unmodded player occupies, moving or stationary, not a radius around that player. One occupied member pins a whole redstone set. Exceptions are clean owner shutdown, failure recovery, required conflicting/oversized redstone consolidation, and transfer to the real server or another eligible sub-server when the old sub-server owner's player is more than `vanilla_player_handover_release_distance` chunks from the occupied chunk (default 12, strict `>`, not measured from the incoming owner). [Handover](handover.md#triggers) defines the square chunk-distance and set rules. An unmodded player can still walk into an already offloaded chunk without moving the chunk's ownership.
