@@ -8,3 +8,4 @@ This list grows as more parts of the design are locked in.
 - `offload_enabled`: Master switch for offloading on this server. When off, every client plays vanilla. **Default:** not set yet.
 - `max_sub_servers`: Maximum number of sub-servers the real server supports at once. New owners beyond the cap are declined and play vanilla. **Default:** not set yet.
 - `min_subserver_tps`: TPS a sub-server must hold. If it falls below this value, the real server shrinks its ownership radius or takes chunks back. **Default:** 20.
+- `handover_verification_ticks`: After a handover, both sides tick the chunk in parallel for this many ticks and compare core block state; a real mismatch hands the chunk back. Debugging tool; doubles tick work while active. **Default:** 0 (off).
