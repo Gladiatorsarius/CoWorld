@@ -1,5 +1,7 @@
 # Client server bootstrap
 
+For the complete startup and continuous-sync sequence, see [syncing order](syncing-order.md).
+
 ## Start conditions
 
 After an accepted [handshake](handshake.md), sync the server mods and required chunks through [initial sync](sync.md) or [rejoin](rejoin.md). Start a sub-server inside the running Minecraft process, like an integrated singleplayer server, without giving it chunk ownership yet.

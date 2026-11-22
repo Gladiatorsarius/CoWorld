@@ -1,5 +1,7 @@
 # Initial sync
 
+For the complete startup and continuous-sync sequence, see [syncing order](syncing-order.md).
+
 ## Purpose
 
 After Accept, sync the server's mods-folder files and world data into an isolated per-server cache. The player's own client mods are not the sub-server's mod set. The player keeps using the real server while sync runs; no downloaded chunk becomes owned merely because it arrived.

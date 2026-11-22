@@ -1,5 +1,7 @@
 # Core model: live chunk simulation offloading
 
+For the complete startup and continuous-sync sequence, see [syncing order](syncing-order.md).
+
 CoWorld is a Fabric server/client mod pair for Minecraft 26.3. A player running the client mod can host a sub-server inside their Minecraft process to simulate nearby chunks. The real server keeps the authoritative stored world and coordinates ownership.
 
 Players without CoWorld connect normally and cannot host a sub-server. They stay connected to the real server even inside another player's offloaded chunks. CoWorld is optional for visitors, but a server's other mods can impose their own client requirements.
