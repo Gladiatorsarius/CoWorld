@@ -9,8 +9,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.CharacterCodingException;
 import java.nio.ByteBuffer;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public final class CoWorldPackets {
@@ -244,15 +246,24 @@ public final class CoWorldPackets {
 		String[] segments = path.split("/", -1);
 		for (String segment : segments) {
 			if (segment.isEmpty() || segment.equals(".") || segment.equals("..")
-				|| segment.indexOf(':') >= 0) {
+				|| segment.indexOf(':') >= 0 || segment.endsWith(".") || segment.endsWith(" ")
+				|| segment.indexOf('<') >= 0 || segment.indexOf('>') >= 0
+				|| segment.indexOf('"') >= 0 || segment.indexOf('|') >= 0
+				|| segment.indexOf('?') >= 0 || segment.indexOf('*') >= 0) {
 				throw new IllegalArgumentException("invalid manifest path");
+			}
+			String base = segment.split("\\.", 2)[0].toUpperCase(java.util.Locale.ROOT);
+			if (Set.of("CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+				"COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
+				"LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9").contains(base)) {
+				throw new IllegalArgumentException("reserved Windows manifest name");
 			}
 		}
 		if (encodedLength(path) > 4096) throw new IllegalArgumentException("manifest path is too long");
 	}
 
 	private static String platformAlias(String path) {
-		String normalized = path.toLowerCase(java.util.Locale.ROOT);
+		String normalized = Normalizer.normalize(path, Normalizer.Form.NFKC).toLowerCase(java.util.Locale.ROOT);
 		String[] segments = normalized.split("/", -1);
 		for (int i = 0; i < segments.length; i++) {
 			segments[i] = segments[i].replaceAll("[. ]+$", "");

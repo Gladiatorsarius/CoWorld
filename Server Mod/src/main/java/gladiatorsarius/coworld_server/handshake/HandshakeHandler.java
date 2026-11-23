@@ -88,8 +88,10 @@ public final class HandshakeHandler {
 				? Decline.OFFLOADING_DISABLED : Decline.INCOMPATIBLE_VERSIONS);
 		}
 		if (!releaseVersion.equals(hello.releaseVersion())) return decline(Decline.INCOMPATIBLE_VERSIONS);
-		if (schemaId == null || hello.schemaId() == null
-			|| !schemaId.equals(hello.schemaId()) || schemaVersion != hello.schemaVersion()) {
+		if (schemaId == null || hello.schemaId() == null) {
+			return decline(Decline.OFFLOADING_DISABLED);
+		}
+		if (!schemaId.equals(hello.schemaId()) || schemaVersion != hello.schemaVersion()) {
 			return decline(Decline.INCOMPATIBLE_VERSIONS);
 		}
 		requestedRadius = Math.min(hello.simulationDistance(), config.maxOwnershipRadius());
@@ -149,12 +151,25 @@ public final class HandshakeHandler {
 	}
 
 	public boolean observePing(int pingMillis, int pingCap, int handbackTicks) {
+		if (state != State.ACCEPTED) return false;
 		if (pingMillis <= pingCap) {
 			highPingTicks = 0;
 			return false;
 		}
 		highPingTicks++;
-		return highPingTicks >= handbackTicks;
+		if (highPingTicks >= handbackTicks) {
+			beginHandBack();
+			return true;
+		}
+		return false;
+	}
+
+	private void beginHandBack() {
+		if (sessionAccepted) sessions.releaseCapacity();
+		sessionAccepted = false;
+		activeSession = null;
+		highPingTicks = 0;
+		state = State.NORMAL_PLAY;
 	}
 
 	private Decline decline(int reason) {

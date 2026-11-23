@@ -13,6 +13,13 @@ files fail at server startup. Client settings may be set in
 `disk_allowance=<nonnegative bytes>`. A malformed client config fails closed
 by disabling offloading for that connection.
 
+If a file is absent, CoWorld writes the documented defaults on first startup.
+Sanity limits: `max_sub_servers` 10,000, `max_ping` 60,000 ms,
+`high_ping_ticks` 1,000,000, `max_ownership_radius` 512 chunks,
+`sync_speed_limit` 1,000,000,000,000 bytes/s, and handshake timeouts
+1,000,000 ticks. Out-of-range or malformed values reject startup for the
+server and fail closed for the client.
+
 - `offload_enabled`: Boolean master switch. When false, decline new offloading and request normal hand-back from existing owners; players continue through the real server. Transfers still obey the occupied-chunk and failure rules. **Default:** true.
 - `max_sub_servers`: Maximum simultaneous sub-server instances, including startup and hand-back. A new instance at the cap is declined, without kicking its player. **Unit:** instances. **Default:** 20.
 - `max_ping`: Maximum accepted round-trip time. Handshake uses the median of three completed probes. A value equal to the limit passes; only a larger value fails. Ongoing monitoring uses Minecraft's built-in player ping measurement. **Unit:** milliseconds. **Default:** 70 ms.

@@ -8,8 +8,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public record ClientSettings(boolean offloading, long diskAllowance, int simulationDistance) {
+	private static final Logger LOGGER = LoggerFactory.getLogger("coworld_client");
 	public ClientSettings {
 		if (diskAllowance < 0 || simulationDistance < 0) {
 			throw new IllegalArgumentException("invalid client settings");
@@ -20,29 +23,41 @@ public record ClientSettings(boolean offloading, long diskAllowance, int simulat
 		Path file = FabricLoader.getInstance().getConfigDir().resolve("coworld-client.properties");
 		boolean offloading = true;
 		long diskAllowance = 1L << 30;
+		Properties properties = new Properties();
 		if (Files.isRegularFile(file)) {
-			Properties properties = new Properties();
 			try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
 				properties.load(reader);
-			} catch (IOException | IllegalArgumentException exception) {
+			} catch (IOException | IllegalArgumentException | IllegalStateException exception) {
+				LOGGER.warn("Invalid CoWorld client config {}; offloading disabled", file);
 				return new ClientSettings(false, 0, simulationDistance);
 			}
-			String preference = properties.getProperty("offloading");
-			if (preference != null) {
-				if (!preference.equalsIgnoreCase("true") && !preference.equalsIgnoreCase("false")) {
-					offloading = false;
-				} else {
-					offloading = Boolean.parseBoolean(preference);
-				}
+		} else {
+			try {
+				Files.createDirectories(file.getParent());
+				Files.writeString(file,
+					"offloading=true\ndisk_allowance=1073741824\n",
+					StandardCharsets.UTF_8);
+			} catch (IOException exception) {
+				LOGGER.warn("Could not write CoWorld client config {}", file, exception);
 			}
-			String allowance = properties.getProperty("disk_allowance");
-			if (allowance != null) {
-				try {
-					long parsedAllowance = Long.parseLong(allowance.trim());
-					diskAllowance = parsedAllowance < 0 ? 0 : parsedAllowance;
-				} catch (NumberFormatException exception) {
-					diskAllowance = 0;
-				}
+			properties.setProperty("offloading", "true");
+			properties.setProperty("disk_allowance", "1073741824");
+		}
+		String preference = properties.getProperty("offloading");
+		if (preference != null) {
+			if (!preference.equalsIgnoreCase("true") && !preference.equalsIgnoreCase("false")) {
+				offloading = false;
+			} else {
+				offloading = Boolean.parseBoolean(preference);
+			}
+		}
+		String allowance = properties.getProperty("disk_allowance");
+		if (allowance != null) {
+			try {
+				long parsedAllowance = Long.parseLong(allowance.trim());
+				diskAllowance = parsedAllowance < 0 ? 0 : parsedAllowance;
+			} catch (NumberFormatException exception) {
+				diskAllowance = 0;
 			}
 		}
 		return new ClientSettings(offloading, diskAllowance, simulationDistance);

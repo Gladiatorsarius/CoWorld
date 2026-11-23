@@ -18,6 +18,10 @@ class CoWorldPacketsTest {
 			() -> CoWorldPackets.validateManifestPath("../mods.jar"));
 		assertThrows(IllegalArgumentException.class,
 			() -> CoWorldPackets.validateManifestPath("mods.jar\0"));
+		assertThrows(IllegalArgumentException.class,
+			() -> CoWorldPackets.validateManifestPath("mods/CON.jar"));
+		assertThrows(IllegalArgumentException.class,
+			() -> CoWorldPackets.validateManifestPath("mods/a?.jar"));
 	}
 
 	@Test

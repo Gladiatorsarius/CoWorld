@@ -53,6 +53,11 @@ public class CoWorldServer implements ModInitializer {
 			HANDSHAKES.forEach((player, handler) -> {
 				if (handler.state() == HandshakeHandler.State.NORMAL_PLAY) return;
 				handler.tick(tick);
+				if (handler.state() == HandshakeHandler.State.ACCEPTED
+					&& handler.observePing(player.connection.latency(), config.maxPing(),
+						config.highPingTicks())) {
+					LOGGER.info("CoWorld session for {} reached high-ping hand-back threshold", player.getName().getString());
+				}
 				CoWorldPackets.Decline decline = handler.expiredResult();
 				if (decline != null) ServerPlayNetworking.send(player, decline);
 			});

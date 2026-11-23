@@ -9,10 +9,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public record CoWorldConfig(boolean offloadEnabled, int maxSubServers, int maxPing,
 							int highPingTicks, int maxOwnershipRadius, long syncSpeedLimit,
 							int helloTimeoutTicks, int pingProbeTimeoutTicks) {
+	private static final Logger LOGGER = LoggerFactory.getLogger("coworld_server");
 	public CoWorldConfig {
 		if (maxSubServers < 0 || maxPing < 0 || highPingTicks < 0 || maxOwnershipRadius < 0
 			|| syncSpeedLimit < 0 || helloTimeoutTicks < 0 || pingProbeTimeoutTicks < 0) {
@@ -29,23 +32,46 @@ public record CoWorldConfig(boolean offloadEnabled, int maxSubServers, int maxPi
 	public static CoWorldConfig load() {
 		CoWorldConfig defaults = defaults();
 		Path file = FabricLoader.getInstance().getConfigDir().resolve("coworld-server.properties");
-		if (!Files.isRegularFile(file)) return defaults;
+		if (!Files.isRegularFile(file)) {
+			writeDefaults(file, defaults);
+			return defaults;
+		}
 		Properties properties = new Properties();
 		try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
 			properties.load(reader);
 		} catch (IOException | IllegalArgumentException exception) {
+			LOGGER.error("Invalid CoWorld server config {}: {}", file, exception.getMessage());
 			throw new IllegalStateException("Could not read CoWorld server configuration " + file, exception);
 		}
 		boolean offloadEnabled = booleanProperty(properties, "offload_enabled", defaults.offloadEnabled());
-		int maxSubServers = intProperty(properties, "max_sub_servers", defaults.maxSubServers(), 0, Integer.MAX_VALUE);
-		int maxPing = intProperty(properties, "max_ping", defaults.maxPing(), 0, Integer.MAX_VALUE);
-		int highPingTicks = intProperty(properties, "high_ping_ticks", defaults.highPingTicks(), 0, Integer.MAX_VALUE);
-		int maxOwnershipRadius = intProperty(properties, "max_ownership_radius", defaults.maxOwnershipRadius(), 0, Integer.MAX_VALUE);
-		long syncSpeedLimit = longProperty(properties, "sync_speed_limit", defaults.syncSpeedLimit(), 0, Long.MAX_VALUE);
-		int helloTimeout = intProperty(properties, "handshake_hello_timeout_ticks", defaults.helloTimeoutTicks(), 0, Integer.MAX_VALUE);
-		int pingTimeout = intProperty(properties, "ping_probe_timeout_ticks", defaults.pingProbeTimeoutTicks(), 0, Integer.MAX_VALUE);
+		int maxSubServers = intProperty(properties, "max_sub_servers", defaults.maxSubServers(), 0, 10_000);
+		int maxPing = intProperty(properties, "max_ping", defaults.maxPing(), 0, 60_000);
+		int highPingTicks = intProperty(properties, "high_ping_ticks", defaults.highPingTicks(), 0, 1_000_000);
+		int maxOwnershipRadius = intProperty(properties, "max_ownership_radius", defaults.maxOwnershipRadius(), 0, 512);
+		long syncSpeedLimit = longProperty(properties, "sync_speed_limit", defaults.syncSpeedLimit(), 0, 1_000_000_000_000L);
+		int helloTimeout = intProperty(properties, "handshake_hello_timeout_ticks", defaults.helloTimeoutTicks(), 0, 1_000_000);
+		int pingTimeout = intProperty(properties, "ping_probe_timeout_ticks", defaults.pingProbeTimeoutTicks(), 0, 1_000_000);
 		return new CoWorldConfig(offloadEnabled, maxSubServers, maxPing, highPingTicks,
 			maxOwnershipRadius, syncSpeedLimit, helloTimeout, pingTimeout);
+	}
+
+	private static void writeDefaults(Path file, CoWorldConfig defaults) {
+		try {
+			Files.createDirectories(file.getParent());
+			String text = """
+				offload_enabled=true
+				max_sub_servers=20
+				max_ping=70
+				high_ping_ticks=100
+				max_ownership_radius=8
+				sync_speed_limit=10000000
+				handshake_hello_timeout_ticks=100
+				ping_probe_timeout_ticks=100
+				""";
+			Files.writeString(file, text, StandardCharsets.UTF_8);
+		} catch (IOException exception) {
+			LOGGER.error("Could not write CoWorld server config {}", file, exception);
+		}
 	}
 
 	private static boolean booleanProperty(Properties properties, String key, boolean defaultValue) {
