@@ -1,10 +1,14 @@
 package gladiatorsarius.coworld_client.client;
 
 import net.fabricmc.api.ClientModInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class CoWorldClientClient implements ClientModInitializer {
+	public static final Logger LOGGER = LoggerFactory.getLogger("coworld_client");
+
 	@Override
 	public void onInitializeClient() {
-		// This entrypoint is suitable for setting up client-specific logic, such as rendering.
+		new ClientNetworkBridge().register();
 	}
 }
