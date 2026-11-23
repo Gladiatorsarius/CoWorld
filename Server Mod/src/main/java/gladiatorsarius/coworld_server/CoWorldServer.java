@@ -9,6 +9,7 @@ import net.minecraft.server.level.ServerPlayer;
 
 import net.minecraft.resources.Identifier;
 import gladiatorsarius.coworld_common.protocol.CoWorldPackets;
+import gladiatorsarius.coworld_common.protocol.ProtocolVersion;
 import gladiatorsarius.coworld_server.config.CoWorldConfig;
 import gladiatorsarius.coworld_server.handshake.HandshakeHandler;
 import gladiatorsarius.coworld_server.handshake.SessionManager;
@@ -40,7 +41,8 @@ public class CoWorldServer implements ModInitializer {
 		PayloadTypeRegistry.clientboundPlay().register(CoWorldPackets.Accept.TYPE, CoWorldPackets.Accept.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(CoWorldPackets.Decline.TYPE, CoWorldPackets.Decline.CODEC);
 		ServerPlayConnectionEvents.JOIN.register((listener, sender, server) -> {
-			HandshakeHandler handler = new HandshakeHandler(config, sessions);
+			HandshakeHandler handler = new HandshakeHandler(config, sessions,
+				ProtocolVersion.V1_SCHEMA_ID, ProtocolVersion.V1_SCHEMA_VERSION);
 			handler.start(server.getTickCount());
 			HANDSHAKES.put(listener.player, handler);
 		});
@@ -64,7 +66,8 @@ public class CoWorldServer implements ModInitializer {
 		});
 		ServerPlayNetworking.registerGlobalReceiver(CoWorldPackets.Hello.TYPE, (payload, context) -> {
 			HandshakeHandler handler = HANDSHAKES.computeIfAbsent(context.player(),
-				player -> new HandshakeHandler(config, sessions));
+				player -> new HandshakeHandler(config, sessions,
+					ProtocolVersion.V1_SCHEMA_ID, ProtocolVersion.V1_SCHEMA_VERSION));
 			Object result = handler.receiveHello(payload);
 			if (result == null) return;
 			context.responseSender().sendPacket(switch (result) {

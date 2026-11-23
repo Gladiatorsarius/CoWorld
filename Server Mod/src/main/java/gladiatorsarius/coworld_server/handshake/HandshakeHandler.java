@@ -42,12 +42,17 @@ public final class HandshakeHandler {
 	}
 
 	public HandshakeHandler(CoWorldConfig config, SessionManager sessions) {
+		this(config, sessions, null, 0);
+	}
+
+	public HandshakeHandler(CoWorldConfig config, SessionManager sessions,
+							String schemaId, int schemaVersion) {
 		this.config = config;
 		this.sessions = sessions;
 		this.prober = new PingProber();
 		this.releaseVersion = CoWorldDefaults.releaseVersion();
-		this.schemaId = null;
-		this.schemaVersion = 0;
+		this.schemaId = schemaId;
+		this.schemaVersion = schemaVersion;
 	}
 
 	public State state() {
@@ -88,11 +93,11 @@ public final class HandshakeHandler {
 				? Decline.OFFLOADING_DISABLED : Decline.INCOMPATIBLE_VERSIONS);
 		}
 		if (!releaseVersion.equals(hello.releaseVersion())) return decline(Decline.INCOMPATIBLE_VERSIONS);
-		if (schemaId == null || hello.schemaId() == null) {
-			return decline(Decline.OFFLOADING_DISABLED);
-		}
-		if (!schemaId.equals(hello.schemaId()) || schemaVersion != hello.schemaVersion()) {
-			return decline(Decline.INCOMPATIBLE_VERSIONS);
+		if (schemaId != null || hello.schemaId() != null) {
+			if (schemaId == null || hello.schemaId() == null
+				|| !schemaId.equals(hello.schemaId()) || schemaVersion != hello.schemaVersion()) {
+				return decline(Decline.INCOMPATIBLE_VERSIONS);
+			}
 		}
 		requestedRadius = Math.min(hello.simulationDistance(), config.maxOwnershipRadius());
 		if (requestedRadius <= 0) return decline(Decline.OFFLOADING_DISABLED);

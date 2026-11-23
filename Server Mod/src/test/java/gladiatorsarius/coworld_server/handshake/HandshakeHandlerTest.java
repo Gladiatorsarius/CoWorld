@@ -1,6 +1,10 @@
 package gladiatorsarius.coworld_server.handshake;
 
 import gladiatorsarius.coworld_common.protocol.CoWorldPackets.PingEcho;
+import gladiatorsarius.coworld_common.protocol.CoWorldPackets.PingProbe;
+import gladiatorsarius.coworld_common.protocol.CoWorldPackets.Hello;
+import gladiatorsarius.coworld_common.protocol.CoWorldPackets.Accept;
+import gladiatorsarius.coworld_common.protocol.ProtocolVersion;
 import gladiatorsarius.coworld_server.config.CoWorldConfig;
 import org.junit.jupiter.api.Test;
 
@@ -26,14 +30,33 @@ class HandshakeHandlerTest {
 	}
 
 	@Test
-	void nullSnapshotSchemaDeclinesWithoutAccepting() {
+	void nullSnapshotSchemaIsCompatibleWhenNeitherSideIsConfigured() {
 		HandshakeHandler handler = new HandshakeHandler(CoWorldConfig.defaults(),
 			"1.1.0", null, 0);
-		gladiatorsarius.coworld_common.protocol.CoWorldPackets.Hello hello =
-			new gladiatorsarius.coworld_common.protocol.CoWorldPackets.Hello(
+		handler.start(0);
+		Hello hello = new Hello(
 				"1.1.0", 1, true, 1024, 8, null, 0, null);
-		assertEquals(gladiatorsarius.coworld_common.protocol.CoWorldPackets.Decline.class,
-			handler.receiveHello(hello).getClass());
-		assertEquals(HandshakeHandler.State.NORMAL_PLAY, handler.state());
+		Object probe1 = handler.receiveHello(hello);
+		assertEquals(PingProbe.class, probe1.getClass());
+	}
+
+	@Test
+	void helloThreeEchoesAcceptWithConcreteV1Schema() {
+		HandshakeHandler handler = new HandshakeHandler(CoWorldConfig.defaults(),
+			"1.1.0", ProtocolVersion.V1_SCHEMA_ID, ProtocolVersion.V1_SCHEMA_VERSION);
+		handler.start(0);
+		Hello hello = new Hello("1.1.0", 1, true, 1024, 8,
+			ProtocolVersion.V1_SCHEMA_ID, ProtocolVersion.V1_SCHEMA_VERSION, null);
+
+		PingProbe probe1 = (PingProbe) handler.receiveHello(hello);
+		PingProbe probe2 = (PingProbe) handler.receivePingEcho(
+			new PingEcho(probe1.nonce(), probe1.sequence()));
+		PingProbe probe3 = (PingProbe) handler.receivePingEcho(
+			new PingEcho(probe2.nonce(), probe2.sequence()));
+		Object result = handler.receivePingEcho(
+			new PingEcho(probe3.nonce(), probe3.sequence()));
+
+		assertEquals(Accept.class, result.getClass());
+		assertEquals(HandshakeHandler.State.ACCEPTED, handler.state());
 	}
 }
