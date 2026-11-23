@@ -24,8 +24,8 @@ public record ClientSettings(boolean offloading, long diskAllowance, int simulat
 			Properties properties = new Properties();
 			try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
 				properties.load(reader);
-			} catch (IOException exception) {
-				throw new IllegalStateException("Could not read CoWorld client configuration", exception);
+			} catch (IOException | IllegalArgumentException exception) {
+				return new ClientSettings(false, 0, simulationDistance);
 			}
 			String preference = properties.getProperty("offloading");
 			if (preference != null) {

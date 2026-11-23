@@ -4,6 +4,15 @@ Time windows use real-server ticks and `_ticks` names. Seconds below assume 20 T
 
 ## Admission and ownership
 
+Server settings may be overridden in `config/coworld-server.properties`:
+`offload_enabled`, `max_sub_servers`, `max_ping`, `high_ping_ticks`,
+`max_ownership_radius`, `sync_speed_limit`, `handshake_hello_timeout_ticks`,
+and `ping_probe_timeout_ticks`. Integer values must be nonnegative; malformed
+files fail at server startup. Client settings may be set in
+`config/coworld-client.properties` with `offloading=true|false` and
+`disk_allowance=<nonnegative bytes>`. A malformed client config fails closed
+by disabling offloading for that connection.
+
 - `offload_enabled`: Boolean master switch. When false, decline new offloading and request normal hand-back from existing owners; players continue through the real server. Transfers still obey the occupied-chunk and failure rules. **Default:** true.
 - `max_sub_servers`: Maximum simultaneous sub-server instances, including startup and hand-back. A new instance at the cap is declined, without kicking its player. **Unit:** instances. **Default:** 20.
 - `max_ping`: Maximum accepted round-trip time. Handshake uses the median of three completed probes. A value equal to the limit passes; only a larger value fails. Ongoing monitoring uses Minecraft's built-in player ping measurement. **Unit:** milliseconds. **Default:** 70 ms.

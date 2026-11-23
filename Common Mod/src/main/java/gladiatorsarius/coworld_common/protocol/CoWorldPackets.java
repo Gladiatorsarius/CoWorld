@@ -10,7 +10,6 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.CharacterCodingException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -83,6 +82,9 @@ public final class CoWorldPackets {
 		public Hello {
 			if (valid) {
 				validateReleaseVersion(releaseVersion);
+				if (!ProtocolVersion.isSupported(protocolVersion)) {
+					throw new IllegalArgumentException("unsupported protocol");
+				}
 				if (diskAllowance < 0 || simulationDistance < 0) {
 					throw new IllegalArgumentException("negative integer");
 				}
@@ -115,6 +117,7 @@ public final class CoWorldPackets {
 			try {
 				return decodeValidated(buf);
 			} catch (RuntimeException | CharacterCodingException exception) {
+				if (buf.isReadable()) buf.skipBytes(buf.readableBytes());
 				return new Hello("invalid", ProtocolVersion.V1, false, 0, 0, null, 0, null, false);
 			}
 		}
@@ -174,6 +177,7 @@ public final class CoWorldPackets {
 					if (buf.isReadable()) throw new IllegalArgumentException("trailing echo bytes");
 					return new PingEcho(nonce, sequence);
 				} catch (RuntimeException exception) {
+					if (buf.isReadable()) buf.skipBytes(buf.readableBytes());
 					return new PingEcho(0, 1, false);
 				}
 			});
@@ -327,15 +331,23 @@ public final class CoWorldPackets {
 		writeNullableUtf(buf, cache.schemaId, 128);
 		buf.writeInt(cache.schemaVersion);
 
-		List<ManifestEntry> sorted = new ArrayList<>(cache.manifest);
-		sorted.sort(Comparator.comparingInt(ManifestEntry::rootKind)
-			.thenComparing((left, right) -> comparedBytes(left.path(), right.path())));
+		record SortedEntry(ManifestEntry entry, byte[] pathBytes) {
+		}
+		List<SortedEntry> sorted = new ArrayList<>(cache.manifest.size());
+		for (ManifestEntry entry : cache.manifest) {
+			sorted.add(new SortedEntry(entry, entry.path().getBytes(StandardCharsets.UTF_8)));
+		}
+		sorted.sort((left, right) -> {
+			int root = Integer.compare(left.entry().rootKind(), right.entry().rootKind());
+			return root != 0 ? root : comparedBytes(left.pathBytes(), right.pathBytes());
+		});
 		if (sorted.size() > MAX_MANIFEST_ENTRIES) throw new IllegalArgumentException("too many manifest entries");
 		buf.writeInt(sorted.size());
 		int manifestBytes = 0;
-		for (ManifestEntry entry : sorted) {
+		for (SortedEntry sortedEntry : sorted) {
+			ManifestEntry entry = sortedEntry.entry();
 			buf.writeByte(entry.rootKind());
-			byte[] path = entry.path().getBytes(StandardCharsets.UTF_8);
+			byte[] path = sortedEntry.pathBytes();
 			buf.writeInt(path.length);
 			buf.writeBytes(path);
 			buf.writeLong(entry.storedLength());
@@ -387,6 +399,10 @@ public final class CoWorldPackets {
 	private static int comparedBytes(String left, String right) {
 		byte[] a = left.getBytes(StandardCharsets.UTF_8);
 		byte[] b = right.getBytes(StandardCharsets.UTF_8);
+		return comparedBytes(a, b);
+	}
+
+	private static int comparedBytes(byte[] a, byte[] b) {
 		int limit = Math.min(a.length, b.length);
 		for (int i = 0; i < limit; i++) {
 			int cmp = Integer.compare(a[i] & 0xff, b[i] & 0xff);

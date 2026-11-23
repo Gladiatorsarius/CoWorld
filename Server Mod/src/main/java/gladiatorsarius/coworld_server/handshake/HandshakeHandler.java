@@ -30,10 +30,7 @@ public final class HandshakeHandler {
 	private long currentServerTick;
 	private boolean sessionAccepted;
 	private UUID activeSession;
-
-	public HandshakeHandler(CoWorldConfig config) {
-		this(config, CoWorldDefaults.RELEASE_VERSION, null, 0);
-	}
+	private int highPingTicks;
 
 	public HandshakeHandler(CoWorldConfig config, String releaseVersion, String schemaId, int schemaVersion) {
 		this.config = config;
@@ -48,7 +45,7 @@ public final class HandshakeHandler {
 		this.config = config;
 		this.sessions = sessions;
 		this.prober = new PingProber();
-		this.releaseVersion = CoWorldDefaults.RELEASE_VERSION;
+		this.releaseVersion = CoWorldDefaults.releaseVersion();
 		this.schemaId = null;
 		this.schemaVersion = 0;
 	}
@@ -141,6 +138,7 @@ public final class HandshakeHandler {
 		if (sessionAccepted) sessions.releaseCapacity();
 		sessionAccepted = false;
 		activeSession = null;
+		highPingTicks = 0;
 		sessions.disconnect();
 		prober.discard();
 		state = State.NORMAL_PLAY;
@@ -148,6 +146,15 @@ public final class HandshakeHandler {
 
 	public UUID activeSession() {
 		return activeSession;
+	}
+
+	public boolean observePing(int pingMillis, int pingCap, int handbackTicks) {
+		if (pingMillis <= pingCap) {
+			highPingTicks = 0;
+			return false;
+		}
+		highPingTicks++;
+		return highPingTicks >= handbackTicks;
 	}
 
 	private Decline decline(int reason) {

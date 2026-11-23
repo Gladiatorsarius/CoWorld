@@ -33,6 +33,11 @@ dependencies {
 	// CoWorld Common: shared protocol, hash and manifest code (jar-in-jar so versions always match)
 	implementation "gladiatorsarius.coworld_common:coworld_common:1.1.0"
 	include "gladiatorsarius.coworld_common:coworld_common:1.1.0"
+	testImplementation "org.junit.jupiter:junit-jupiter:5.12.2"
+}
+
+test {
+	useJUnitPlatform()
 }
 
 processResources {

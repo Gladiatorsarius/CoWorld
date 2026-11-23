@@ -51,6 +51,7 @@ public class CoWorldServer implements ModInitializer {
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
 			long tick = server.getTickCount();
 			HANDSHAKES.forEach((player, handler) -> {
+				if (handler.state() == HandshakeHandler.State.NORMAL_PLAY) return;
 				handler.tick(tick);
 				CoWorldPackets.Decline decline = handler.expiredResult();
 				if (decline != null) ServerPlayNetworking.send(player, decline);

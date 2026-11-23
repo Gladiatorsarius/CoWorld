@@ -33,8 +33,8 @@ public record CoWorldConfig(boolean offloadEnabled, int maxSubServers, int maxPi
 		Properties properties = new Properties();
 		try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
 			properties.load(reader);
-		} catch (IOException exception) {
-			throw new IllegalStateException("Could not read CoWorld server configuration", exception);
+		} catch (IOException | IllegalArgumentException exception) {
+			throw new IllegalStateException("Could not read CoWorld server configuration " + file, exception);
 		}
 		boolean offloadEnabled = booleanProperty(properties, "offload_enabled", defaults.offloadEnabled());
 		int maxSubServers = intProperty(properties, "max_sub_servers", defaults.maxSubServers(), 0, Integer.MAX_VALUE);

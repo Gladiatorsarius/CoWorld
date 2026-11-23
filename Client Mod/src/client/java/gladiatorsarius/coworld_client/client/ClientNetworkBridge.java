@@ -18,7 +18,7 @@ public final class ClientNetworkBridge {
 	public void register() {
 		ClientPlayConnectionEvents.JOIN.register((listener, sender, client) -> {
 			int simulationDistance = client.options.simulationDistance().get();
-			sendHello(new HelloSender(CoWorldDefaults.RELEASE_VERSION, null, 0)
+			sendHello(new HelloSender(CoWorldDefaults.releaseVersion(), null, 0)
 				.build(ClientSettings.load(simulationDistance)));
 		});
 		ClientPlayNetworking.registerGlobalReceiver(PingProbe.TYPE, (payload, context) -> {

@@ -6,7 +6,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class SessionManager {
 	private final int maxSubServers;
 	private final AtomicInteger reservedSlots = new AtomicInteger();
-	private int highPingTicks;
 
 	public SessionManager(int maxSubServers) {
 		this.maxSubServers = maxSubServers;
@@ -30,17 +29,7 @@ public final class SessionManager {
 		return UUID.randomUUID();
 	}
 
-	public boolean observePing(int pingMillis, int pingCap, int handbackTicks) {
-		if (pingMillis <= pingCap) {
-			highPingTicks = 0;
-			return false;
-		}
-		highPingTicks++;
-		return highPingTicks >= handbackTicks;
-	}
-
 	public void disconnect() {
-		highPingTicks = 0;
 	}
 
 	public int reservedSlots() {

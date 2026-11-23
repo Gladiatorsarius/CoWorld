@@ -36,6 +36,9 @@ Reserve space within the allowance before writing, including simultaneous old an
 
 `handshake_hello_timeout_ticks` and `ping_probe_timeout_ticks` both default to 100 real-server ticks, about 5 seconds at 20 TPS. The first starts at login; the second applies separately to each outstanding probe. Missing Hello means normal non-offloading play. CoWorld timeout or version failure must not itself crash or kick the player. A connection that ends mid-handshake has changed no chunk ownership.
 
+V1 also defines post-accept built-in ping monitoring, but this implementation
+does not claim readiness until a concrete player-latency source is wired.
+
 ## Session state
 
 Every join runs a fresh handshake. Pending probes and negotiation state are connection-scoped and discarded on disconnect. The accepted session ID identifies the live offloading/relay session; it is not a persistent cache key and is not resumed after reconnect. Accept's requested radius is a candidate-area limit for sync and later offers, not an allocation of chunks. Existing claims, whole redstone sets, occupancy, current TPS reduction, readiness and coordinated commitment decide actual ownership. The real server remains owner of server-owned chunks until a handover commits; other committed owners likewise retain their claims.
