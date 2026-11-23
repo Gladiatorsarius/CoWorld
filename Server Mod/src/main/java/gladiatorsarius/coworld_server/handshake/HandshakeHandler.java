@@ -28,6 +28,8 @@ public final class HandshakeHandler {
 	private long helloDeadlineTick = -1;
 	private long pingDeadlineTick = -1;
 	private long currentServerTick;
+	private boolean sessionAccepted;
+	private UUID activeSession;
 
 	public HandshakeHandler(CoWorldConfig config) {
 		this(config, CoWorldDefaults.RELEASE_VERSION, null, 0);
@@ -80,7 +82,7 @@ public final class HandshakeHandler {
 	}
 
 	public Object receiveHello(Hello hello) {
-		if (state != State.WAITING_FOR_HELLO) return decline(Decline.FAILED_NEGOTIATION);
+		if (state != State.WAITING_FOR_HELLO) return null;
 		if (!config.offloadEnabled()) return decline(Decline.OFFLOADING_DISABLED);
 		if (!hello.offloading()) return decline(Decline.CLIENT_OPTED_OUT);
 		if (!ProtocolVersion.isSupported(hello.protocolVersion()) || hello.diskAllowance() <= 0) {
@@ -100,6 +102,9 @@ public final class HandshakeHandler {
 	}
 
 	public Object receivePingEcho(gladiatorsarius.coworld_common.protocol.CoWorldPackets.PingEcho echo) {
+		if (state == State.ACCEPTED || state == State.NORMAL_PLAY) {
+			return null;
+		}
 		if (state != State.PROBING) {
 			return decline(Decline.FAILED_NEGOTIATION);
 		}
@@ -119,18 +124,23 @@ public final class HandshakeHandler {
 		}
 		UUID sessionId = sessions.acceptSession();
 		if (sessionId == null) return decline(Decline.CAPACITY_REACHED);
+		sessionAccepted = true;
+		activeSession = sessionId;
 		state = State.ACCEPTED;
 		return new Accept(ProtocolVersion.V1, requestedRadius(), config.syncSpeedLimit(), sessionId);
 	}
 
 	public void disconnect() {
+		if (sessionAccepted) sessions.releaseCapacity();
+		sessionAccepted = false;
+		activeSession = null;
 		sessions.disconnect();
 		prober.discard();
 		state = State.NORMAL_PLAY;
 	}
 
 	public UUID activeSession() {
-		return sessions.activeSession();
+		return activeSession;
 	}
 
 	private Decline decline(int reason) {

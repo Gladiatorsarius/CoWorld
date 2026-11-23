@@ -52,6 +52,13 @@ public final class CoWorldPackets {
 			if (manifest == null || manifest.size() > MAX_MANIFEST_ENTRIES) {
 				throw new IllegalArgumentException("invalid manifest");
 			}
+			java.util.HashSet<String> normalizedPaths = new java.util.HashSet<>();
+			for (ManifestEntry entry : manifest) {
+				String key = entry.rootKind() + ":" + entry.path().toLowerCase(java.util.Locale.ROOT);
+				if (!normalizedPaths.add(key)) {
+					throw new IllegalArgumentException("duplicate or platform-colliding manifest path");
+				}
+			}
 			manifest = List.copyOf(manifest);
 		}
 	}
@@ -128,6 +135,7 @@ public final class CoWorldPackets {
 				long nonce = buf.readLong();
 				int sequence = buf.readUnsignedByte();
 				if (sequence < 1 || sequence > 3) throw new IllegalArgumentException("invalid probe sequence");
+				if (buf.isReadable()) throw new IllegalArgumentException("trailing probe bytes");
 				return new PingProbe(nonce, sequence);
 			});
 		public PingProbe {
@@ -145,6 +153,7 @@ public final class CoWorldPackets {
 				long nonce = buf.readLong();
 				int sequence = buf.readUnsignedByte();
 				if (sequence < 1 || sequence > 3) throw new IllegalArgumentException("invalid echo sequence");
+				if (buf.isReadable()) throw new IllegalArgumentException("trailing echo bytes");
 				return new PingEcho(nonce, sequence);
 			});
 		public PingEcho {
@@ -158,7 +167,11 @@ public final class CoWorldPackets {
 		public static final Type<Accept> TYPE = new Type<>(ID);
 		public static final StreamCodec<FriendlyByteBuf, Accept> CODEC = StreamCodec.of(
 			(buf, value) -> buf.writeInt(value.protocolVersion).writeInt(value.requestedRadius).writeLong(value.syncSpeedLimit).writeUUID(value.sessionId),
-			buf -> new Accept(buf.readInt(), buf.readInt(), buf.readLong(), buf.readUUID()));
+			buf -> {
+				Accept value = new Accept(buf.readInt(), buf.readInt(), buf.readLong(), buf.readUUID());
+				if (buf.isReadable()) throw new IllegalArgumentException("trailing accept bytes");
+				return value;
+			});
 		public Accept {
 			if (!ProtocolVersion.isSupported(protocolVersion) || requestedRadius < 0 || syncSpeedLimit < 0 || sessionId == null) {
 				throw new IllegalArgumentException("invalid accept");
@@ -178,7 +191,11 @@ public final class CoWorldPackets {
 		public static final Type<Decline> TYPE = new Type<>(ID);
 		public static final StreamCodec<FriendlyByteBuf, Decline> CODEC = StreamCodec.of(
 			(buf, value) -> buf.writeByte(value.reason),
-			buf -> new Decline(buf.readUnsignedByte()));
+			buf -> {
+				Decline value = new Decline(buf.readUnsignedByte());
+				if (buf.isReadable()) throw new IllegalArgumentException("trailing decline bytes");
+				return value;
+			});
 		public Decline {
 			if (reason < 1 || reason > 6) throw new IllegalArgumentException("invalid decline reason");
 		}
@@ -195,7 +212,8 @@ public final class CoWorldPackets {
 		}
 		String[] segments = path.split("/", -1);
 		for (String segment : segments) {
-			if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
+			if (segment.isEmpty() || segment.equals(".") || segment.equals("..")
+				|| segment.indexOf(':') >= 0) {
 				throw new IllegalArgumentException("invalid manifest path");
 			}
 		}

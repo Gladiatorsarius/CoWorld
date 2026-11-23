@@ -7,7 +7,6 @@ public final class SessionManager {
 	private final int maxSubServers;
 	private static final AtomicInteger reservedSlots = new AtomicInteger();
 	private int highPingTicks;
-	private UUID activeSession;
 
 	public SessionManager(int maxSubServers) {
 		this.maxSubServers = maxSubServers;
@@ -31,10 +30,8 @@ public final class SessionManager {
 	}
 
 	public UUID acceptSession() {
-		if (activeSession != null) throw new IllegalStateException("connection already accepted");
 		if (!reserveCapacity()) return null;
-		activeSession = UUID.randomUUID();
-		return activeSession;
+		return UUID.randomUUID();
 	}
 
 	public boolean observePing(int pingMillis, int pingCap, int handbackTicks) {
@@ -47,13 +44,7 @@ public final class SessionManager {
 	}
 
 	public void disconnect() {
-		if (activeSession != null) releaseCapacity();
-		activeSession = null;
 		highPingTicks = 0;
-	}
-
-	public UUID activeSession() {
-		return activeSession;
 	}
 
 	public int reservedSlots() {

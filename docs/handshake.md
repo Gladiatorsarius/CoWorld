@@ -6,6 +6,10 @@ Immediately after normal login, negotiate CoWorld over custom packets on the exi
 
 ## Exchange
 
+The concrete V1 handshake payload IDs are `coworld:hello`, `coworld:ping_probe`,
+`coworld:ping_echo`, `coworld:accept`, and `coworld:decline`. Their encodings and
+bounds are implemented once in `CoWorldPackets` in Common Mod.
+
 1. The client sends Hello: CoWorld version, protocol version, offloading preference, disk allowance, client simulation distance, and whether it has a previous cache with its identity/compatibility metadata.
 2. The real server sends three ping probes in sequence. The client immediately echoes each unchanged; the server measures each RTT and takes the median. A missing, invalid, or late reply declines offloading. All three replies are required.
 3. Accept supplies the agreed protocol, requested ownership radius in chunks, sync speed limit, and a new session ID. The radius is `min(client simulation distance, max_ownership_radius)`. Accept authorizes sync, not ticking or chunk ownership.

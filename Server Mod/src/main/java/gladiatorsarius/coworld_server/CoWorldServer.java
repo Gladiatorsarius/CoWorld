@@ -61,6 +61,7 @@ public class CoWorldServer implements ModInitializer {
 			HandshakeHandler handler = HANDSHAKES.computeIfAbsent(context.player(),
 				player -> new HandshakeHandler(config, sessions));
 			Object result = handler.receiveHello(payload);
+			if (result == null) return;
 			context.responseSender().sendPacket(switch (result) {
 				case CoWorldPackets.PingProbe probe -> probe;
 				case CoWorldPackets.Accept accept -> accept;
@@ -73,6 +74,7 @@ public class CoWorldServer implements ModInitializer {
 				HandshakeHandler handler = HANDSHAKES.get(context.player());
 				if (handler == null) return;
 				Object result = handler.receivePingEcho(payload);
+				if (result == null) return;
 				context.responseSender().sendPacket(switch (result) {
 					case CoWorldPackets.PingProbe probe -> probe;
 					case CoWorldPackets.Accept accept -> accept;
