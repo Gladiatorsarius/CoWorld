@@ -16,9 +16,11 @@ public final class ClientNetworkBridge {
 	private final PingEchoResponder responder = new PingEchoResponder();
 
 	public void register() {
-		ClientPlayConnectionEvents.JOIN.register((listener, sender, client) ->
+		ClientPlayConnectionEvents.JOIN.register((listener, sender, client) -> {
+			int simulationDistance = client.options.simulationDistance().get();
 			sendHello(new HelloSender(CoWorldDefaults.RELEASE_VERSION, null, 0)
-				.build(new ClientSettings(true, 1L << 30, 8))));
+				.build(ClientSettings.load(simulationDistance)));
+		});
 		ClientPlayNetworking.registerGlobalReceiver(PingProbe.TYPE, (payload, context) -> {
 			PingEcho echo = responder.echo(payload);
 			if (echo != null) context.responseSender().sendPacket(echo);

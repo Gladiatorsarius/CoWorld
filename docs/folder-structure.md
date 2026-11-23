@@ -107,7 +107,7 @@ coworld_server/
 coworld_client/                         # src/main
 ├── CoWorldClient.java                  # common entrypoint
 ├── config/
-│   └── ClientSettings.java             # disk allowance, offloading preference
+│   └── ClientSettings.java             # loads disk allowance and offloading preference
 ├── handshake/                          # handshake.md
 │   ├── HelloSender.java                # builds Hello with versions, allowance, cache metadata
 │   └── PingEchoResponder.java          # echoes the three probes unchanged

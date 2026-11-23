@@ -6,6 +6,9 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.CharacterCodingException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -54,7 +57,7 @@ public final class CoWorldPackets {
 			}
 			java.util.HashSet<String> normalizedPaths = new java.util.HashSet<>();
 			for (ManifestEntry entry : manifest) {
-				String key = entry.rootKind() + ":" + entry.path().toLowerCase(java.util.Locale.ROOT);
+				String key = entry.rootKind() + ":" + platformAlias(entry.path());
 				if (!normalizedPaths.add(key)) {
 					throw new IllegalArgumentException("duplicate or platform-colliding manifest path");
 				}
@@ -65,20 +68,26 @@ public final class CoWorldPackets {
 
 	public record Hello(String releaseVersion, int protocolVersion, boolean offloading,
 						long diskAllowance, int simulationDistance, String schemaId, int schemaVersion,
-						CacheDeclaration cache) implements CustomPacketPayload {
+						CacheDeclaration cache, boolean valid) implements CustomPacketPayload {
 		public static final Identifier ID = Identifier.fromNamespaceAndPath("coworld", "hello");
 		public static final Type<Hello> TYPE = new Type<>(ID);
-		public static final StreamCodec<FriendlyByteBuf, Hello> CODEC = StreamCodec.of(Hello::encode, Hello::decode);
+		public static final StreamCodec<FriendlyByteBuf, Hello> CODEC = StreamCodec.of(Hello::encode, Hello::decodeLenient);
+
+		public Hello(String releaseVersion, int protocolVersion, boolean offloading,
+					 long diskAllowance, int simulationDistance, String schemaId, int schemaVersion,
+					 CacheDeclaration cache) {
+			this(releaseVersion, protocolVersion, offloading, diskAllowance, simulationDistance,
+				schemaId, schemaVersion, cache, true);
+		}
 
 		public Hello {
-			validateReleaseVersion(releaseVersion);
-			if (!ProtocolVersion.isSupported(protocolVersion)) {
-				throw new IllegalArgumentException("unsupported protocol");
+			if (valid) {
+				validateReleaseVersion(releaseVersion);
+				if (diskAllowance < 0 || simulationDistance < 0) {
+					throw new IllegalArgumentException("negative integer");
+				}
+				validateSchema(schemaId, schemaVersion);
 			}
-			if (diskAllowance < 0 || simulationDistance < 0) {
-				throw new IllegalArgumentException("negative integer");
-			}
-			validateSchema(schemaId, schemaVersion);
 		}
 
 		@Override
@@ -102,7 +111,15 @@ public final class CoWorldPackets {
 			}
 		}
 
-		private static Hello decode(FriendlyByteBuf buf) {
+		private static Hello decodeLenient(FriendlyByteBuf buf) {
+			try {
+				return decodeValidated(buf);
+			} catch (RuntimeException | CharacterCodingException exception) {
+				return new Hello("invalid", ProtocolVersion.V1, false, 0, 0, null, 0, null, false);
+			}
+		}
+
+		private static Hello decodeValidated(FriendlyByteBuf buf) throws CharacterCodingException {
 			if (buf.readableBytes() > HELLO_PAYLOAD_LIMIT) {
 				throw new IllegalArgumentException("Hello payload exceeds 64 MiB");
 			}
@@ -122,7 +139,7 @@ public final class CoWorldPackets {
 			if (buf.isReadable()) {
 				throw new IllegalArgumentException("trailing Hello bytes");
 			}
-			return new Hello(release, protocol, offloading, allowance, distance, schema, schemaVersion, cache);
+			return new Hello(release, protocol, offloading, allowance, distance, schema, schemaVersion, cache, true);
 		}
 	}
 
@@ -144,20 +161,27 @@ public final class CoWorldPackets {
 		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}
 
-	public record PingEcho(long nonce, int sequence) implements CustomPacketPayload {
+	public record PingEcho(long nonce, int sequence, boolean valid) implements CustomPacketPayload {
 		public static final Identifier ID = Identifier.fromNamespaceAndPath("coworld", "ping_echo");
 		public static final Type<PingEcho> TYPE = new Type<>(ID);
 		public static final StreamCodec<FriendlyByteBuf, PingEcho> CODEC = StreamCodec.of(
 			(buf, value) -> buf.writeLong(value.nonce).writeByte(value.sequence),
 			buf -> {
-				long nonce = buf.readLong();
-				int sequence = buf.readUnsignedByte();
-				if (sequence < 1 || sequence > 3) throw new IllegalArgumentException("invalid echo sequence");
-				if (buf.isReadable()) throw new IllegalArgumentException("trailing echo bytes");
-				return new PingEcho(nonce, sequence);
+				try {
+					long nonce = buf.readLong();
+					int sequence = buf.readUnsignedByte();
+					if (sequence < 1 || sequence > 3) throw new IllegalArgumentException("invalid echo sequence");
+					if (buf.isReadable()) throw new IllegalArgumentException("trailing echo bytes");
+					return new PingEcho(nonce, sequence);
+				} catch (RuntimeException exception) {
+					return new PingEcho(0, 1, false);
+				}
 			});
+		public PingEcho(long nonce, int sequence) {
+			this(nonce, sequence, true);
+		}
 		public PingEcho {
-			if (sequence < 1 || sequence > 3) throw new IllegalArgumentException("invalid echo sequence");
+			if (valid && (sequence < 1 || sequence > 3)) throw new IllegalArgumentException("invalid echo sequence");
 		}
 		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}
@@ -210,6 +234,9 @@ public final class CoWorldPackets {
 		if (path.contains("\\") || path.startsWith("/") || path.startsWith("~")) {
 			throw new IllegalArgumentException("invalid manifest path");
 		}
+		if (path.indexOf('\0') >= 0) {
+			throw new IllegalArgumentException("NUL manifest path");
+		}
 		String[] segments = path.split("/", -1);
 		for (String segment : segments) {
 			if (segment.isEmpty() || segment.equals(".") || segment.equals("..")
@@ -220,6 +247,15 @@ public final class CoWorldPackets {
 		if (encodedLength(path) > 4096) throw new IllegalArgumentException("manifest path is too long");
 	}
 
+	private static String platformAlias(String path) {
+		String normalized = path.toLowerCase(java.util.Locale.ROOT);
+		String[] segments = normalized.split("/", -1);
+		for (int i = 0; i < segments.length; i++) {
+			segments[i] = segments[i].replaceAll("[. ]+$", "");
+		}
+		return String.join("/", segments);
+	}
+
 	public static void validateReleaseVersion(String version) {
 		if (version == null || version.isEmpty() || encodedLength(version) > 32) {
 			throw new IllegalArgumentException("invalid release version");
@@ -227,6 +263,7 @@ public final class CoWorldPackets {
 	}
 
 	public static void validateSchema(String schemaId, int schemaVersion) {
+		if (schemaVersion < 0) throw new IllegalArgumentException("negative schema version");
 		if (schemaId == null) {
 			if (schemaVersion != 0) throw new IllegalArgumentException("schema version requires schema ID");
 		} else {
@@ -245,14 +282,22 @@ public final class CoWorldPackets {
 		buf.writeBytes(bytes);
 	}
 
-	private static String readIntLengthUtf(FriendlyByteBuf buf, int maxBytes) {
+	private static String readIntLengthUtf(FriendlyByteBuf buf, int maxBytes) throws CharacterCodingException {
 		int length = buf.readInt();
 		if (length <= 0 || length > maxBytes || length > buf.readableBytes()) {
 			throw new IllegalArgumentException("invalid UTF-8 length");
 		}
 		byte[] bytes = new byte[length];
 		buf.readBytes(bytes);
-		return new String(bytes, StandardCharsets.UTF_8);
+		return decodeUtfStrict(bytes);
+	}
+
+	private static String decodeUtfStrict(byte[] bytes) throws CharacterCodingException {
+		return java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+			.onMalformedInput(CodingErrorAction.REPORT)
+			.onUnmappableCharacter(CodingErrorAction.REPORT)
+			.decode(ByteBuffer.wrap(bytes))
+			.toString();
 	}
 
 	private static void writeNullableUtf(FriendlyByteBuf buf, String value, int maxBytes) {
@@ -267,7 +312,7 @@ public final class CoWorldPackets {
 		}
 	}
 
-	private static String readNullableUtf(FriendlyByteBuf buf, int maxBytes) {
+	private static String readNullableUtf(FriendlyByteBuf buf, int maxBytes) throws CharacterCodingException {
 		int presence = buf.readUnsignedByte();
 		if (presence == 0) return null;
 		if (presence != 1) throw new IllegalArgumentException("invalid nullable string presence");
@@ -300,7 +345,7 @@ public final class CoWorldPackets {
 		}
 	}
 
-	private static CacheDeclaration readCache(FriendlyByteBuf buf) {
+	private static CacheDeclaration readCache(FriendlyByteBuf buf) throws CharacterCodingException {
 		UUID serverUuid = buf.readUUID();
 		UUID worldUuid = buf.readUUID();
 		String coworldVersion = readIntLengthUtf(buf, 32);

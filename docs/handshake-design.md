@@ -645,6 +645,11 @@ PingEchoResponder                     |
 
 ### Verification Plan
 
+* **Test policy**: The detailed plan's listed JUnit classes are permanent test targets, not ad-hoc
+  scripts. They have not yet been added to this branch. A source-compiled harness may verify
+  state transitions during development, but it must not replace retained tests or connected-client
+  and in-game verification.
+
 * **Common build**: Run `./gradlew build` inside `Common Mod/`.
 * **Server build and tests**: Run `./gradlew build` inside `Server Mod/`.
 * **Client build and tests**: Run `./gradlew build` inside `Client Mod/`.

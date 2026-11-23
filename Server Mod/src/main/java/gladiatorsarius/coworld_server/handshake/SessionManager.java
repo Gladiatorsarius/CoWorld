@@ -5,15 +5,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public final class SessionManager {
 	private final int maxSubServers;
-	private static final AtomicInteger reservedSlots = new AtomicInteger();
+	private final AtomicInteger reservedSlots = new AtomicInteger();
 	private int highPingTicks;
 
 	public SessionManager(int maxSubServers) {
 		this.maxSubServers = maxSubServers;
-	}
-
-	public static void resetCapacity() {
-		reservedSlots.set(0);
 	}
 
 	public boolean reserveCapacity() {

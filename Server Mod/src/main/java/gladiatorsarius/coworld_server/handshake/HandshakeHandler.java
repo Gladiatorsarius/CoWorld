@@ -83,6 +83,7 @@ public final class HandshakeHandler {
 
 	public Object receiveHello(Hello hello) {
 		if (state != State.WAITING_FOR_HELLO) return null;
+		if (!hello.valid()) return decline(Decline.FAILED_NEGOTIATION);
 		if (!config.offloadEnabled()) return decline(Decline.OFFLOADING_DISABLED);
 		if (!hello.offloading()) return decline(Decline.CLIENT_OPTED_OUT);
 		if (!ProtocolVersion.isSupported(hello.protocolVersion()) || hello.diskAllowance() <= 0) {
@@ -104,6 +105,12 @@ public final class HandshakeHandler {
 	public Object receivePingEcho(gladiatorsarius.coworld_common.protocol.CoWorldPackets.PingEcho echo) {
 		if (state == State.ACCEPTED || state == State.NORMAL_PLAY) {
 			return null;
+		}
+		if (state == State.WAITING_FOR_HELLO) {
+			return null;
+		}
+		if (!echo.valid()) {
+			return decline(Decline.FAILED_NEGOTIATION);
 		}
 		if (state != State.PROBING) {
 			return decline(Decline.FAILED_NEGOTIATION);

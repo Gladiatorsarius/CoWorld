@@ -31,9 +31,8 @@ public class CoWorldServer implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		CoWorldConfig config = CoWorldConfig.defaults();
+		CoWorldConfig config = CoWorldConfig.load();
 		sessions = new SessionManager(config.maxSubServers());
-		SessionManager.resetCapacity();
 		PayloadTypeRegistry.serverboundPlay().registerLarge(CoWorldPackets.Hello.TYPE, CoWorldPackets.Hello.CODEC,
 			CoWorldPackets.HELLO_PAYLOAD_LIMIT);
 		PayloadTypeRegistry.serverboundPlay().register(CoWorldPackets.PingEcho.TYPE, CoWorldPackets.PingEcho.CODEC);
