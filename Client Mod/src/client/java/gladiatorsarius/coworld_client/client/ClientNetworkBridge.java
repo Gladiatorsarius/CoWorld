@@ -1,6 +1,5 @@
 package gladiatorsarius.coworld_client.client;
 
-import gladiatorsarius.coworld_client.handshake.PingEchoResponder;
 import gladiatorsarius.coworld_common.protocol.CoWorldPackets.Accept;
 import gladiatorsarius.coworld_common.protocol.CoWorldPackets.Decline;
 import gladiatorsarius.coworld_common.protocol.CoWorldPackets.Hello;
@@ -14,8 +13,6 @@ import gladiatorsarius.coworld_client.handshake.HelloSender;
 import gladiatorsarius.coworld_common.config.CoWorldDefaults;
 
 public final class ClientNetworkBridge {
-	private final PingEchoResponder responder = new PingEchoResponder();
-
 	public void register() {
 		ClientPlayConnectionEvents.JOIN.register((listener, sender, client) -> {
 			int simulationDistance = client.options.simulationDistance().get();
@@ -23,10 +20,8 @@ public final class ClientNetworkBridge {
 				ProtocolVersion.V1_SCHEMA_ID, ProtocolVersion.V1_SCHEMA_VERSION)
 				.build(ClientSettings.load(simulationDistance)));
 		});
-		ClientPlayNetworking.registerGlobalReceiver(PingProbe.TYPE, (payload, context) -> {
-			PingEcho echo = responder.echo(payload);
-			if (echo != null) context.responseSender().sendPacket(echo);
-		});
+		ClientPlayNetworking.registerGlobalReceiver(PingProbe.TYPE, (payload, context) ->
+			context.responseSender().sendPacket(new PingEcho(payload.nonce(), payload.sequence())));
 		ClientPlayNetworking.registerGlobalReceiver(Accept.TYPE, (payload, context) ->
 			CoWorldClientClient.LOGGER.info("CoWorld offloading accepted for session {}", payload.sessionId()));
 		ClientPlayNetworking.registerGlobalReceiver(Decline.TYPE, (payload, context) ->

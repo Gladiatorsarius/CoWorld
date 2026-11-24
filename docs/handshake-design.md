@@ -106,14 +106,14 @@ authorize synchronization and observe ongoing player ping.
   per-probe deadline, calculates the median RTT, and compares it inclusively
   with `max_ping`.
 * `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java`
-  creates fresh session IDs after acceptance and tracks ongoing high-ping ticks.
-  Disconnect cleanup removes all connection-scoped state.
+  creates fresh session IDs after acceptance, tracks ongoing high-ping ticks,
+  and releases reserved capacity when a session ends.
 * `Client Mod/src/main/java/gladiatorsarius/coworld_client/handshake/HelloSender.java`
   builds Hello from client settings, simulation distance, versions, and the
   cache compatibility declaration.
-* `Client Mod/src/main/java/gladiatorsarius/coworld_client/handshake/PingEchoResponder.java`
-  immediately echoes each valid probe payload unchanged and does not fabricate
-  a reply after a deadline.
+* `Client Mod/src/client/java/gladiatorsarius/coworld_client/client/ClientNetworkBridge.java`
+  immediately echoes each valid probe payload unchanged. The server rejects
+  expired or unknown probes.
 
 ### Packet schema
 
@@ -328,7 +328,7 @@ Client HelloSender
 Common CoWorldPackets <----> Server HandshakeHandler
         ^                             |
         |                             +--> PingProber
-PingEchoResponder                     |
+ClientNetworkBridge (PingEcho)        |
                                       +--> SessionManager
                                       |
                          Accept ---> Sync coordinator
@@ -513,9 +513,8 @@ PingEchoResponder                     |
 * **Rationale**: Own accepted session identity and post-accept ping monitoring.
 * **Planned changes**: Generate a fresh session ID per accepted connection,
   track consecutive over-cap ping ticks, reset at or below the cap, trigger
-  existing hand-back behavior at `high_ping_ticks`, atomically reserve
-  sub-server capacity before Accept and release it on failure or disconnect,
-  clean up on disconnect.
+  existing hand-back behavior at `high_ping_ticks`, and atomically reserve
+  sub-server capacity before Accept and release it on failure or disconnect.
 
 #### 8. `Server Mod/src/main/java/gladiatorsarius/coworld_server/CoWorldServer.java` (Modify)
 
@@ -535,12 +534,12 @@ PingEchoResponder                     |
   schema version. Send the live snapshot-adapter ID and version in Hello;
   leave cache-adapter identity separate from live-adapter compatibility.
 
-#### 10. `Client Mod/src/main/java/gladiatorsarius/coworld_client/handshake/PingEchoResponder.java` (Create)
+#### 10. Ping echo in `ClientNetworkBridge.java`
 
 * **Rationale**: Provide the client half of the required probe exchange.
-* **Planned changes**: Register the ping-probe receiver and immediately return
-  an unchanged PingEcho for each valid outstanding probe. Never invent a reply
-  for an expired or unknown probe.
+* **Planned changes**: Register the ping-probe receiver in the bridge and return
+  an unchanged PingEcho for each probe. The server rejects expired or unknown
+  probes.
 
 #### 11. `Client Mod/src/client/java/gladiatorsarius/coworld_client/client/ClientNetworkBridge.java` (Create)
 
@@ -605,8 +604,8 @@ PingEchoResponder                     |
 * **Rationale**: Verify connection-scoped session identity and ongoing ping
   handling.
 * **Planned changes**: Cover fresh IDs on reconnect, consecutive over-cap tick
-  counting, reset at or below the cap, hand-back trigger, atomic capacity
-  reservation/release, and disconnect cleanup.
+  counting, reset at or below the cap, hand-back trigger, and atomic capacity
+  reservation/release on failure or disconnect.
 
 #### 19. `Client Mod/src/test/java/gladiatorsarius/coworld_client/handshake/HelloSenderTest.java` (Create)
 
@@ -616,11 +615,12 @@ PingEchoResponder                     |
   simulation distance, no-cache declaration, complete cache declaration,
   nullable schema ID, and schema version.
 
-#### 20. `Client Mod/src/test/java/gladiatorsarius/coworld_client/handshake/PingEchoResponderTest.java` (Create)
+#### 20. Probe echo coverage
 
-* **Rationale**: Verify the client never alters or fabricates probe replies.
-* **Planned changes**: Cover immediate unchanged echoes and ignored unknown,
-  duplicate, malformed, or expired probes.
+* **Rationale**: Confirm the client never alters or fabricates probe replies.
+* **Planned changes**: The inlined bridge echo copies nonce and sequence unchanged;
+  unchanged echoes are exercised by `HandshakeHandlerTest`. No separate client
+  responder class or test remains.
 
 #### 21. `Common Mod/gradle.properties` (Modify)
 

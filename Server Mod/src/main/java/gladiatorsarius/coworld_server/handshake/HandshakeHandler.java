@@ -146,7 +146,6 @@ public final class HandshakeHandler {
 		sessionAccepted = false;
 		activeSession = null;
 		highPingTicks = 0;
-		sessions.disconnect();
 		prober.discard();
 		state = State.NORMAL_PLAY;
 	}

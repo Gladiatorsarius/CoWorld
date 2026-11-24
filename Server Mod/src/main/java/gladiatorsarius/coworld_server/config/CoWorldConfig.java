@@ -59,15 +59,17 @@ public record CoWorldConfig(boolean offloadEnabled, int maxSubServers, int maxPi
 		try {
 			Files.createDirectories(file.getParent());
 			String text = """
-				offload_enabled=true
-				max_sub_servers=20
-				max_ping=70
-				high_ping_ticks=100
-				max_ownership_radius=8
-				sync_speed_limit=10000000
-				handshake_hello_timeout_ticks=100
-				ping_probe_timeout_ticks=100
-				""";
+				offload_enabled=%s
+				max_sub_servers=%d
+				max_ping=%d
+				high_ping_ticks=%d
+				max_ownership_radius=%d
+				sync_speed_limit=%d
+				handshake_hello_timeout_ticks=%d
+				ping_probe_timeout_ticks=%d
+				""".formatted(defaults.offloadEnabled(), defaults.maxSubServers(), defaults.maxPing(),
+					defaults.highPingTicks(), defaults.maxOwnershipRadius(), defaults.syncSpeedLimit(),
+					defaults.helloTimeoutTicks(), defaults.pingProbeTimeoutTicks());
 			Files.writeString(file, text, StandardCharsets.UTF_8);
 		} catch (IOException exception) {
 			LOGGER.error("Could not write CoWorld server config {}", file, exception);

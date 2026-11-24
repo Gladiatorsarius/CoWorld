@@ -109,8 +109,7 @@ coworld_client/                         # src/main
 ├── config/
 │   └── ClientSettings.java             # loads disk allowance and offloading preference
 ├── handshake/                          # handshake.md
-│   ├── HelloSender.java                # builds Hello with versions, allowance, cache metadata
-│   └── PingEchoResponder.java          # echoes the three probes unchanged
+│   └── HelloSender.java                # builds Hello with versions, allowance, cache metadata
 ├── cache/                              # sync.md storage/identity, rejoin.md
 │   ├── CacheDirectoryManager.java      # per server/world UUID cache dirs, pins
 │   ├── ManifestValidator.java          # revalidates cached files against manifest hashes

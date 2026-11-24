@@ -1,6 +1,7 @@
 package gladiatorsarius.coworld_server;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.networking.v1.PacketSender;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -68,28 +69,24 @@ public class CoWorldServer implements ModInitializer {
 			HandshakeHandler handler = HANDSHAKES.computeIfAbsent(context.player(),
 				player -> new HandshakeHandler(config, sessions,
 					ProtocolVersion.V1_SCHEMA_ID, ProtocolVersion.V1_SCHEMA_VERSION));
-			Object result = handler.receiveHello(payload);
-			if (result == null) return;
-			context.responseSender().sendPacket(switch (result) {
-				case CoWorldPackets.PingProbe probe -> probe;
-				case CoWorldPackets.Accept accept -> accept;
-				case CoWorldPackets.Decline decline -> decline;
-				default -> throw new IllegalStateException("invalid handshake result");
-			});
+			sendHandshakeResult(context.responseSender(), handler.receiveHello(payload));
 		});
 		ServerPlayNetworking.registerGlobalReceiver(CoWorldPackets.PingEcho.TYPE,
 			(payload, context) -> {
 				HandshakeHandler handler = HANDSHAKES.get(context.player());
 				if (handler == null) return;
-				Object result = handler.receivePingEcho(payload);
-				if (result == null) return;
-				context.responseSender().sendPacket(switch (result) {
-					case CoWorldPackets.PingProbe probe -> probe;
-					case CoWorldPackets.Accept accept -> accept;
-					case CoWorldPackets.Decline decline -> decline;
-					default -> throw new IllegalStateException("invalid handshake result");
-				});
+				sendHandshakeResult(context.responseSender(), handler.receivePingEcho(payload));
 			});
+	}
+
+	private static void sendHandshakeResult(PacketSender sender, Object result) {
+		if (result == null) return;
+		sender.sendPacket(switch (result) {
+			case CoWorldPackets.PingProbe probe -> probe;
+			case CoWorldPackets.Accept accept -> accept;
+			case CoWorldPackets.Decline decline -> decline;
+			default -> throw new IllegalStateException("invalid handshake result");
+		});
 	}
 
 	public static Identifier id(String path) {

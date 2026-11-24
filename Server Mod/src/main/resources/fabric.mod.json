@@ -17,18 +17,8 @@
 	"entrypoints": {
 		"main": [
 			"gladiatorsarius.coworld_server.CoWorldServer"
-		],
-		"client": [
-			"gladiatorsarius.coworld_server.client.CoWorldServerClient"
 		]
 	},
-	"mixins": [
-		"coworld_server.mixins.json",
-		{
-			"config": "coworld_server.client.mixins.json",
-			"environment": "client"
-		}
-	],
 	"depends": {
 		"fabricloader": ">=0.20.1",
 		"minecraft": "~26.3",

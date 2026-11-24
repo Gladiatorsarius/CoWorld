@@ -11,15 +11,18 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.ByteBuffer;
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 public final class CoWorldPackets {
 	public static final int HELLO_PAYLOAD_LIMIT = 64 * 1024 * 1024;
 	public static final int CACHE_MANIFEST_LIMIT = 32 * 1024 * 1024;
 	public static final int MAX_MANIFEST_ENTRIES = 100_000;
 	public static final int MAX_STRING_BYTES = 128;
+	private static final Pattern TRAILING_DOTS_SPACES = Pattern.compile("[. ]+$");
 
 	public record ManifestEntry(int rootKind, String path, long storedLength, byte[] sha256) {
 		public ManifestEntry {
@@ -266,7 +269,7 @@ public final class CoWorldPackets {
 		String normalized = Normalizer.normalize(path, Normalizer.Form.NFKC).toLowerCase(java.util.Locale.ROOT);
 		String[] segments = normalized.split("/", -1);
 		for (int i = 0; i < segments.length; i++) {
-			segments[i] = segments[i].replaceAll("[. ]+$", "");
+			segments[i] = TRAILING_DOTS_SPACES.matcher(segments[i]).replaceAll("");
 		}
 		return String.join("/", segments);
 	}
@@ -350,7 +353,7 @@ public final class CoWorldPackets {
 		}
 		sorted.sort((left, right) -> {
 			int root = Integer.compare(left.entry().rootKind(), right.entry().rootKind());
-			return root != 0 ? root : comparedBytes(left.pathBytes(), right.pathBytes());
+			return root != 0 ? root : Arrays.compareUnsigned(left.pathBytes(), right.pathBytes());
 		});
 		if (sorted.size() > MAX_MANIFEST_ENTRIES) throw new IllegalArgumentException("too many manifest entries");
 		buf.writeInt(sorted.size());
@@ -385,7 +388,6 @@ public final class CoWorldPackets {
 		for (int i = 0; i < count; i++) {
 			int rootKind = buf.readUnsignedByte();
 			String path = readIntLengthUtf(buf, 4096);
-			validateManifestPath(path);
 			long storedLength = buf.readLong();
 			if (storedLength < 0) throw new IllegalArgumentException("negative stored length");
 			byte[] hash = new byte[32];
@@ -408,17 +410,7 @@ public final class CoWorldPackets {
 	}
 
 	private static int comparedBytes(String left, String right) {
-		byte[] a = left.getBytes(StandardCharsets.UTF_8);
-		byte[] b = right.getBytes(StandardCharsets.UTF_8);
-		return comparedBytes(a, b);
-	}
-
-	private static int comparedBytes(byte[] a, byte[] b) {
-		int limit = Math.min(a.length, b.length);
-		for (int i = 0; i < limit; i++) {
-			int cmp = Integer.compare(a[i] & 0xff, b[i] & 0xff);
-			if (cmp != 0) return cmp;
-		}
-		return Integer.compare(a.length, b.length);
+		return Arrays.compareUnsigned(left.getBytes(StandardCharsets.UTF_8),
+			right.getBytes(StandardCharsets.UTF_8));
 	}
 }

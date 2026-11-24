@@ -11,7 +11,7 @@ public final class SessionManager {
 		this.maxSubServers = maxSubServers;
 	}
 
-	public boolean reserveCapacity() {
+	private boolean reserveCapacity() {
 		int current;
 		do {
 			current = reservedSlots.get();
@@ -27,9 +27,6 @@ public final class SessionManager {
 	public UUID acceptSession() {
 		if (!reserveCapacity()) return null;
 		return UUID.randomUUID();
-	}
-
-	public void disconnect() {
 	}
 
 	public int reservedSlots() {
