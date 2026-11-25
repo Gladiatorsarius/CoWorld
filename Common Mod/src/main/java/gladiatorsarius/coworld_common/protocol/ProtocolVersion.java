@@ -12,8 +12,4 @@ public final class ProtocolVersion {
 	public static boolean isSupported(int protocolVersion) {
 		return protocolVersion == V1;
 	}
-
-	public static boolean matches(int protocolVersion) {
-		return isSupported(protocolVersion);
-	}
 }

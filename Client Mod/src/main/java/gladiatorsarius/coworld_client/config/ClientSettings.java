@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 public record ClientSettings(boolean offloading, long diskAllowance, int simulationDistance) {
 	private static final Logger LOGGER = LoggerFactory.getLogger("coworld_client");
+	private static final long DEFAULT_DISK_ALLOWANCE = 1L << 30;
 	public ClientSettings {
 		if (diskAllowance < 0 || simulationDistance < 0) {
 			throw new IllegalArgumentException("invalid client settings");
@@ -22,7 +23,7 @@ public record ClientSettings(boolean offloading, long diskAllowance, int simulat
 	public static ClientSettings load(int simulationDistance) {
 		Path file = FabricLoader.getInstance().getConfigDir().resolve("coworld-client.properties");
 		boolean offloading = true;
-		long diskAllowance = 1L << 30;
+		long diskAllowance = DEFAULT_DISK_ALLOWANCE;
 		Properties properties = new Properties();
 		if (Files.isRegularFile(file)) {
 			try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
@@ -35,13 +36,13 @@ public record ClientSettings(boolean offloading, long diskAllowance, int simulat
 			try {
 				Files.createDirectories(file.getParent());
 				Files.writeString(file,
-					"offloading=true\ndisk_allowance=1073741824\n",
+					"offloading=true\ndisk_allowance=" + DEFAULT_DISK_ALLOWANCE + "\n",
 					StandardCharsets.UTF_8);
 			} catch (IOException exception) {
 				LOGGER.warn("Could not write CoWorld client config {}", file, exception);
 			}
 			properties.setProperty("offloading", "true");
-			properties.setProperty("disk_allowance", "1073741824");
+			properties.setProperty("disk_allowance", Long.toString(DEFAULT_DISK_ALLOWANCE));
 		}
 		String preference = properties.getProperty("offloading");
 		if (preference != null) {

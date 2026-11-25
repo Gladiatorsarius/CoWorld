@@ -10,7 +10,6 @@ import java.util.Random;
 public final class PingProber {
 	private final Random random;
 	private PingProbe current;
-	private int nextSequence;
 	private final List<Long> rtts = new ArrayList<>(3);
 	private long sentAtNanos;
 
@@ -24,8 +23,7 @@ public final class PingProber {
 
 	public PingProbe sendNext() {
 		if (rtts.size() >= 3) throw new IllegalStateException("all probes already sent");
-		nextSequence = rtts.size() + 1;
-		current = new PingProbe(random.nextLong(), nextSequence);
+		current = new PingProbe(random.nextLong(), rtts.size() + 1);
 		sentAtNanos = System.nanoTime();
 		return current;
 	}
@@ -52,6 +50,5 @@ public final class PingProber {
 	public void discard() {
 		current = null;
 		rtts.clear();
-		nextSequence = 0;
 	}
 }

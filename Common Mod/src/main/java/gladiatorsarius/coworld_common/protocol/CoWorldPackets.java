@@ -23,6 +23,9 @@ public final class CoWorldPackets {
 	public static final int MAX_MANIFEST_ENTRIES = 100_000;
 	public static final int MAX_STRING_BYTES = 128;
 	private static final Pattern TRAILING_DOTS_SPACES = Pattern.compile("[. ]+$");
+	private static final Set<String> WINDOWS_RESERVED_NAMES = Set.of("CON", "PRN", "AUX", "NUL", "COM1", "COM2",
+		"COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
+		"LPT7", "LPT8", "LPT9");
 
 	public record ManifestEntry(int rootKind, String path, long storedLength, byte[] sha256) {
 		public ManifestEntry {
@@ -256,9 +259,7 @@ public final class CoWorldPackets {
 				throw new IllegalArgumentException("invalid manifest path");
 			}
 			String base = segment.split("\\.", 2)[0].toUpperCase(java.util.Locale.ROOT);
-			if (Set.of("CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
-				"COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
-				"LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9").contains(base)) {
+			if (WINDOWS_RESERVED_NAMES.contains(base)) {
 				throw new IllegalArgumentException("reserved Windows manifest name");
 			}
 		}

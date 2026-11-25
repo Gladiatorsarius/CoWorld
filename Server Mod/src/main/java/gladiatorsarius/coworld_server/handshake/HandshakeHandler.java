@@ -32,25 +32,17 @@ public final class HandshakeHandler {
 	private UUID activeSession;
 	private int highPingTicks;
 
-	public HandshakeHandler(CoWorldConfig config, String releaseVersion, String schemaId, int schemaVersion) {
-		this.config = config;
-		this.sessions = new SessionManager(config.maxSubServers());
-		this.prober = new PingProber();
-		this.releaseVersion = releaseVersion;
-		this.schemaId = schemaId;
-		this.schemaVersion = schemaVersion;
-	}
-
-	public HandshakeHandler(CoWorldConfig config, SessionManager sessions) {
-		this(config, sessions, null, 0);
+	public HandshakeHandler(CoWorldConfig config, SessionManager sessions,
+							String schemaId, int schemaVersion) {
+		this(config, sessions, CoWorldDefaults.releaseVersion(), schemaId, schemaVersion);
 	}
 
 	public HandshakeHandler(CoWorldConfig config, SessionManager sessions,
-							String schemaId, int schemaVersion) {
+							String releaseVersion, String schemaId, int schemaVersion) {
 		this.config = config;
 		this.sessions = sessions;
 		this.prober = new PingProber();
-		this.releaseVersion = CoWorldDefaults.releaseVersion();
+		this.releaseVersion = releaseVersion;
 		this.schemaId = schemaId;
 		this.schemaVersion = schemaVersion;
 	}
