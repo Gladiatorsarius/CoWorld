@@ -155,4 +155,4 @@ coworld_client/client/                  # src/client
 - `protocol/` and `hash/` exist only in Common Mod. Client Mod and Server Mod import them, so packet formats and the canonical chunk hash cannot drift apart.
 - The sub-server lives in Client Mod's `src/main`: it runs a dedicated-server environment inside the client process and must not touch client-only classes. Only the thin `ClientNetworkBridge` sits in `src/client`, because Fabric's client networking API is client-only.
 - Each mod folder carries the template's own `README.md`, `LICENSE` (CC0), `.gitignore`, and `.gitattributes`, local to that project.
-- The builds are untested: they need JDK 25 (`./gradlew build` in any of the three folders). Template placeholders (description, authors, contact links) are unchanged from the generator.
+- The builds need JDK 25 (`./gradlew build` in any of the three folders). Template placeholders (description, authors, contact links) are unchanged from the generator.

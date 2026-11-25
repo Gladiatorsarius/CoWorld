@@ -31,13 +31,8 @@ dependencies {
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
 	// CoWorld Common: shared protocol, hash and manifest code (jar-in-jar so versions always match)
-	implementation "gladiatorsarius.coworld_common:coworld_common:1.1.0"
-	include "gladiatorsarius.coworld_common:coworld_common:1.1.0"
-	testImplementation "org.junit.jupiter:junit-jupiter:5.12.2"
-}
-
-test {
-	useJUnitPlatform()
+	implementation "gladiatorsarius.coworld_common:coworld_common:1.1.1"
+	include "gladiatorsarius.coworld_common:coworld_common:1.1.1"
 }
 
 processResources {

@@ -569,50 +569,38 @@ ClientNetworkBridge (PingEcho)        |
 * **Planned changes**: Replace planned placeholders with the finalized
   handshake file list and note the client-only network bridge boundary.
 
-#### 15. `Common Mod/src/test/java/gladiatorsarius/coworld_common/protocol/CoWorldPacketsTest.java` (Create)
+#### 15. `Common Mod/src/test/java/gladiatorsarius/coworld_common/protocol/CoWorldPacketsTest.java` (Not present)
 
-* **Rationale**: Verify the shared wire contract independently of either
-  endpoint.
-* **Retained tests**: Three tests cover rejection of negative schema versions,
-  several unsafe manifest paths, and exact V1 protocol matching. Round-trip
-  encoding, payload IDs, Decline values, size limits, canonical ordering, and
-  oversized declarations are not covered by a retained test on this branch.
+* **Status**: Removed with the rest of the JUnit test code. Wire validation is
+  checked by manual or in-game verification only.
 
-#### 16. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/HandshakeHandlerTest.java` (Create)
+#### 16. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/HandshakeHandlerTest.java` (Not present)
 
-* **Rationale**: Verify server state transitions and fallback behavior.
-* **Retained tests**: Four tests cover ignoring an echo before Hello, ignoring
-  packets after a terminal state, accepting a null schema when neither side
-  configures one, and reaching Accept after three echoes with the concrete V1
-  schema. Missing Hello, invalid fields, version mismatch, opt-out, allowance
-  and radius rejection, capacity, disconnect cleanup, and sync/rejoin routing
-  have no retained test on this branch.
+* **Status**: Removed with the rest of the JUnit test code. Handshake state
+  transitions are checked by manual or in-game verification only.
 
 #### 17. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/PingProberTest.java` (Not present)
 
-* **Status**: No dedicated prober test is retained on this branch. The three
-  sequential probes and unchanged echoes are exercised indirectly by
-  `HandshakeHandlerTest`; median equality/above-cap behavior and deadline
-  expiry have no direct test.
+* **Status**: No dedicated prober test. The three sequential probes, unchanged
+  echoes, median equality/above-cap behavior, and deadline expiry have no
+  automated test.
 
 #### 18. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/SessionManagerTest.java` (Not present)
 
-* **Status**: No dedicated session test is retained on this branch. Session ID
-  generation and slot reservation are exercised indirectly through
-  `HandshakeHandlerTest`; slot release is not.
+* **Status**: No dedicated session test. Session ID generation, slot
+  reservation, and slot release have no automated test.
 
 #### 19. `Client Mod/src/test/java/gladiatorsarius/coworld_client/handshake/HelloSenderTest.java` (Not present)
 
-* **Status**: No HelloSender test is retained on this branch. The only client
-  test is `ClientSettingsTest`, which checks rejection of a negative disk
-  allowance.
+* **Status**: No HelloSender or client-settings test. Client behavior is
+  checked by manual or in-game verification only.
 
 #### 20. Probe echo coverage
 
 * **Rationale**: Confirm the client never alters or fabricates probe replies.
 * **Planned changes**: The inlined bridge echo copies nonce and sequence unchanged;
-  unchanged echoes are exercised by `HandshakeHandlerTest`. No separate client
-  responder class or test remains.
+  unchanged echoes need a manual or in-game check. No separate client responder
+  class or automated test remains.
 
 #### 21. `Common Mod/gradle.properties` (Modify)
 
@@ -637,25 +625,22 @@ ClientNetworkBridge (PingEcho)        |
 
 ### Verification Plan
 
-* **Test policy**: The retained JUnit classes on this branch are
-  `CoWorldPacketsTest` (three tests), `HandshakeHandlerTest` (four), and
-  `ClientSettingsTest` (one). `PingProberTest`, `SessionManagerTest`, and
-  `HelloSenderTest` are not present. No source-compiled harness replaces these
-  retained tests or connected-client and in-game verification.
+* **Test policy**: No JUnit test code is retained in any mod. Verification is
+  manual or in-game only; no source-compiled harness replaces it.
 
 * **Common build**: Run `./gradlew build` inside `Common Mod/`.
-* **Server build and tests**: Run `./gradlew build` inside `Server Mod/`.
-* **Client build and tests**: Run `./gradlew build` inside `Client Mod/`.
+* **Server build**: Run `./gradlew build` inside `Server Mod/`.
+* **Client build**: Run `./gradlew build` inside `Client Mod/`.
 * **Protocol checks**: The five payload IDs and their codecs are registered by
-  both entrypoints; the retained common test checks exact V1 matching. No
-  round-trip encoding suite is retained.
-* **Behavior checks**: Retained tests cover an echo before Hello, packets after
-  a terminal state, a null schema on both sides, and three echoes reaching
+  both entrypoints; exact V1 matching needs a manual or in-game check. There is
+  no round-trip encoding suite.
+* **Behavior checks**: Manually check an echo before Hello, packets after a
+  terminal state, a null schema on both sides, and three echoes reaching
   Accept. Other failure paths need manual or in-game checks; there is no cache
   mismatch path on this branch.
 * **Timing checks**: The handler requires three probes and the prober computes
-  the median, but neither median equality/above-cap behavior nor either
-  deadline has a retained test.
+  the median. Median equality/above-cap behavior and both deadlines have no
+  automated test.
 * **Integration check**: Verify that Accept is logged by the client and that an
   incompatible or absent client continues normal play. There is no sync or
   rejoin follow-up and no chunk transfer to verify on this branch.
