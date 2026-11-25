@@ -49,7 +49,7 @@ coworld_server/
 ├── handshake/                          # handshake.md
 │   ├── HandshakeHandler.java           # Hello/Accept/Decline exchange and timeouts
 │   ├── PingProber.java                 # three probes, median RTT against max_ping
-│   └── SessionManager.java             # accepted session IDs, high-ping tracking
+│   └── SessionManager.java             # accepted session IDs, planned high-ping tracking
 ├── sync/                               # sync.md
 │   ├── ServerWorldIdentity.java        # creates and persists server/world UUIDs
 │   ├── ExecutionManifestBuilder.java   # hashed manifests of versions/libraries/mods/config

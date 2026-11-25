@@ -39,7 +39,7 @@ Source and destination name simulation roles, not necessarily remote machines. W
 - Join: start the sub-server without ownership, then transfer eligible synced chunks.
 - Movement: entering chunks sync first, with movement direction prioritized; leaving chunks return through the same protocol.
 - Simulation-distance changes: recompute the requested radius and transfer the affected eligible chunks.
-- Overload or sustained high ping: reduce offloading using the same protocol.
+- Overload or sustained high ping: reduce offloading using the same protocol. The planned `high_ping_ticks` setting counts consecutive readings above `max_ping` after Accept; a reading at or below the cap resets the count, and reaching the threshold starts hand-back. V1 does not monitor ping after Accept.
 - Clean logout: wait the disconnect grace period, then keep trying until hand-back is confirmed. Individual preparation attempts may time out; clean shutdown has no overall deadline.
 
 Routine handovers in either direction must not move a chunk containing an unmodded player, moving or stationary. Check the player's occupied chunk, not a protection radius around them. Recheck eligibility before the final stop, not only when an offer starts. One occupied member pins an indivisible redstone set.

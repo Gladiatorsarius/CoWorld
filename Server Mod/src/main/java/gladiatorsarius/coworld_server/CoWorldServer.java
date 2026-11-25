@@ -18,13 +18,9 @@ import gladiatorsarius.coworld_server.handshake.SessionManager;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class CoWorldServer implements ModInitializer {
 	public static final String MOD_ID = "coworld_server";
 
-	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 	private static final Map<ServerPlayer, HandshakeHandler> HANDSHAKES = new ConcurrentHashMap<>();
 	private static SessionManager sessions;
 
@@ -53,11 +49,6 @@ public class CoWorldServer implements ModInitializer {
 			HANDSHAKES.forEach((player, handler) -> {
 				if (handler.state() == HandshakeHandler.State.NORMAL_PLAY) return;
 				handler.tick(tick);
-				if (handler.state() == HandshakeHandler.State.ACCEPTED
-					&& handler.observePing(player.connection.latency(), config.maxPing(),
-						config.highPingTicks())) {
-					LOGGER.info("CoWorld session for {} reached high-ping hand-back threshold", player.getName().getString());
-				}
 				CoWorldPackets.Decline decline = handler.expiredResult();
 				if (decline != null) ServerPlayNetworking.send(player, decline);
 			});

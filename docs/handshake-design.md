@@ -86,7 +86,7 @@ The wire format belongs in Common Mod so the client and server cannot define
 different packet fields or encodings. The server owns negotiation policy and
 timeouts. The client builds the Hello and echoes probes without changing their
 contents. Session tracking remains server-side because only the real server can
-authorize synchronization and observe ongoing player ping.
+authorize synchronization.
 
 ### Packet and component responsibilities
 
@@ -110,8 +110,7 @@ authorize synchronization and observe ongoing player ping.
   `max_ping` comparison.
 * `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java`
   creates fresh session IDs after acceptance, atomically reserves a slot before
-  Accept, and releases reserved capacity when a session ends. `HandshakeHandler`
-  tracks high-ping ticks.
+  Accept, and releases reserved capacity when a session ends.
 * `Client Mod/src/main/java/gladiatorsarius/coworld_client/handshake/HelloSender.java`
   builds Hello from client settings, simulation distance, versions, and the
   live schema constants. Its `build(settings, cache)` overload can carry a
@@ -241,10 +240,8 @@ PROBING
                                       --> ACCEPT + SessionId --> ACCEPTED
 ```
 
-After acceptance the server observes `player.connection.latency()` each tick.
-Reaching `high_ping_ticks` above `max_ping` clears the local session and its
-reserved slot and logs the event; no chunk hand-back or ownership change is
-started by that threshold on this branch.
+V1 checks ping only during the three probes. After Accept the handshake does
+not monitor connection latency, start hand-back, or change ownership.
 
 The client follows the same connection-local flow from its side:
 
@@ -309,11 +306,8 @@ requires all three replies; it never calculates a median from fewer samples.
 Disconnecting at any state discards probes, negotiation state, and any
 uncommitted session data. No handshake failure can crash or kick the player.
 
-After acceptance, `HandshakeHandler` counts consecutive real-server ticks
-whose built-in player ping (`player.connection.latency()`) exceeds `max_ping`.
-Reaching `high_ping_ticks` clears the local session, releases its reserved
-slot, and logs the event; no hand-back or ownership flow is started. A
-measurement at or below the cap resets the counter.
+Ping checks end with Accept: V1 has no post-accept latency counter or
+threshold. Disconnect is the only path that releases a reserved slot.
 
 ### Data flow
 
@@ -392,9 +386,9 @@ ClientNetworkBridge (PingEcho)        |
   probes and negotiation state must not survive disconnect or be shared between
   players.
 * **Capacity safety**: `SessionManager` atomically increments a numeric
-  reserved-slot count before sending Accept and decrements it on disconnect or
-  the over-cap-ping session reset. No sub-server is created on this branch and
-  there is no sync/bootstrap failure path to release a slot.
+  reserved-slot count before sending Accept and decrements it on disconnect.
+  No sub-server is created on this branch and there is no sync/bootstrap
+  failure path to release a slot.
 * **Storage safety**: The disk allowance is a signed 64-bit byte count; negative
   values are rejected and zero declines. The handshake only transmits and
   checks that value: this branch performs no cache writes, reservation, or
@@ -473,7 +467,7 @@ ClientNetworkBridge (PingEcho)        |
 #### 3. `Common Mod/src/main/java/gladiatorsarius/coworld_common/config/CoWorldDefaults.java` (Create or modify)
 
 * **Rationale**: Centralize handshake defaults with the other shared defaults.
-* **Planned changes**: Define `max_ping = 70`, `high_ping_ticks = 100`,
+* **Planned changes**: Define `max_ping = 70`,
   `handshake_hello_timeout_ticks = 100`, and
   `ping_probe_timeout_ticks = 100`, plus the existing ownership-radius and
   sync-limit defaults consumed by Accept.
@@ -512,12 +506,11 @@ ClientNetworkBridge (PingEcho)        |
 
 #### 7. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java` (Create)
 
-* **Rationale**: Own accepted session identity and post-accept ping monitoring.
+* **Rationale**: Own accepted session identity and reserved capacity.
 * **Implemented content**: Generates a fresh session ID per accepted connection
-  and atomically reserves a numeric slot before Accept. The over-cap ping tick
-  counting lives in `HandshakeHandler` and clears the session/slot at
-  `high_ping_ticks`; `SessionManager` only releases the slot when called. There
-  is no sub-server, bootstrap failure path, or hand-back behavior.
+  and atomically reserves a numeric slot before Accept. Reserved capacity is
+  released on disconnect. There is no sub-server, bootstrap failure path,
+  post-accept ping monitoring, or hand-back behavior.
 
 #### 8. `Server Mod/src/main/java/gladiatorsarius/coworld_server/CoWorldServer.java` (Modify)
 
@@ -606,7 +599,7 @@ ClientNetworkBridge (PingEcho)        |
 
 * **Status**: No dedicated session test is retained on this branch. Session ID
   generation and slot reservation are exercised indirectly through
-  `HandshakeHandlerTest`; over-cap tick counting and slot release are not.
+  `HandshakeHandlerTest`; slot release is not.
 
 #### 19. `Client Mod/src/test/java/gladiatorsarius/coworld_client/handshake/HelloSenderTest.java` (Not present)
 

@@ -32,7 +32,7 @@ The handshake only transmits and checks the allowance. This branch has no cache 
 
 ## Ping and deadlines
 
-`max_ping` is in milliseconds, default 70. A median equal to the cap passes; above it declines offloading. During an accepted session the server reads `player.connection.latency()` each tick. A value above `max_ping` increments the over-cap counter and a value at or below the cap resets it; reaching `high_ping_ticks` (default 100) clears the local session and its reserved slot and logs the event. No chunk hand-back or ownership transfer is started by that threshold on this branch.
+`max_ping` is in milliseconds, default 70. The handshake checks only the three probe RTTs: a median equal to the cap passes; above it declines offloading. V1 does not monitor ping after Accept and has no high-ping threshold or hand-back behavior.
 
 `handshake_hello_timeout_ticks` and `ping_probe_timeout_ticks` both default to 100 real-server ticks, about 5 seconds at 20 TPS. The first starts at login; the second applies separately to each outstanding probe. Missing Hello means normal non-offloading play with no Decline; an expired probe deadline sends `Decline(failed negotiation)`. CoWorld timeout or version failure must not itself crash or kick the player. A connection that ends mid-handshake has changed no chunk ownership.
 

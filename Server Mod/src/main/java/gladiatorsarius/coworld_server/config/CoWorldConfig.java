@@ -13,18 +13,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public record CoWorldConfig(boolean offloadEnabled, int maxSubServers, int maxPing,
-							int highPingTicks, int maxOwnershipRadius, long syncSpeedLimit,
+							int maxOwnershipRadius, long syncSpeedLimit,
 							int helloTimeoutTicks, int pingProbeTimeoutTicks) {
 	private static final Logger LOGGER = LoggerFactory.getLogger("coworld_server");
 	public CoWorldConfig {
-		if (maxSubServers < 0 || maxPing < 0 || highPingTicks < 0 || maxOwnershipRadius < 0
+		if (maxSubServers < 0 || maxPing < 0 || maxOwnershipRadius < 0
 			|| syncSpeedLimit < 0 || helloTimeoutTicks < 0 || pingProbeTimeoutTicks < 0) {
 			throw new IllegalArgumentException("invalid CoWorld server configuration");
 		}
 	}
 
 	public static CoWorldConfig defaults() {
-		return new CoWorldConfig(true, 20, CoWorldDefaults.MAX_PING, CoWorldDefaults.HIGH_PING_TICKS,
+		return new CoWorldConfig(true, 20, CoWorldDefaults.MAX_PING,
 			CoWorldDefaults.MAX_OWNERSHIP_RADIUS, CoWorldDefaults.SYNC_SPEED_LIMIT,
 			CoWorldDefaults.HANDSHAKE_HELLO_TIMEOUT_TICKS, CoWorldDefaults.PING_PROBE_TIMEOUT_TICKS);
 	}
@@ -46,12 +46,11 @@ public record CoWorldConfig(boolean offloadEnabled, int maxSubServers, int maxPi
 		boolean offloadEnabled = booleanProperty(properties, "offload_enabled", defaults.offloadEnabled());
 		int maxSubServers = intProperty(properties, "max_sub_servers", defaults.maxSubServers(), 0, 10_000);
 		int maxPing = intProperty(properties, "max_ping", defaults.maxPing(), 0, 60_000);
-		int highPingTicks = intProperty(properties, "high_ping_ticks", defaults.highPingTicks(), 0, 1_000_000);
 		int maxOwnershipRadius = intProperty(properties, "max_ownership_radius", defaults.maxOwnershipRadius(), 0, 512);
 		long syncSpeedLimit = longProperty(properties, "sync_speed_limit", defaults.syncSpeedLimit(), 0, 1_000_000_000_000L);
 		int helloTimeout = intProperty(properties, "handshake_hello_timeout_ticks", defaults.helloTimeoutTicks(), 0, 1_000_000);
 		int pingTimeout = intProperty(properties, "ping_probe_timeout_ticks", defaults.pingProbeTimeoutTicks(), 0, 1_000_000);
-		return new CoWorldConfig(offloadEnabled, maxSubServers, maxPing, highPingTicks,
+		return new CoWorldConfig(offloadEnabled, maxSubServers, maxPing,
 			maxOwnershipRadius, syncSpeedLimit, helloTimeout, pingTimeout);
 	}
 
@@ -62,13 +61,12 @@ public record CoWorldConfig(boolean offloadEnabled, int maxSubServers, int maxPi
 				offload_enabled=%s
 				max_sub_servers=%d
 				max_ping=%d
-				high_ping_ticks=%d
 				max_ownership_radius=%d
 				sync_speed_limit=%d
 				handshake_hello_timeout_ticks=%d
 				ping_probe_timeout_ticks=%d
 				""".formatted(defaults.offloadEnabled(), defaults.maxSubServers(), defaults.maxPing(),
-					defaults.highPingTicks(), defaults.maxOwnershipRadius(), defaults.syncSpeedLimit(),
+					defaults.maxOwnershipRadius(), defaults.syncSpeedLimit(),
 					defaults.helloTimeoutTicks(), defaults.pingProbeTimeoutTicks());
 			Files.writeString(file, text, StandardCharsets.UTF_8);
 		} catch (IOException exception) {
