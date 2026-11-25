@@ -104,12 +104,14 @@ authorize synchronization and observe ongoing player ping.
   checks, and Accept/Decline construction. It does not transition into sync or
   rejoin.
 * `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/PingProber.java`
-  sends three sequential probes, validates unchanged echoes, applies the
-  per-probe deadline, calculates the median RTT, and compares it inclusively
-  with `max_ping`.
+  sends three sequential probes, matches each echo to the outstanding nonce and
+  sequence, records RTT milliseconds, and calculates the median RTT.
+  `HandshakeHandler` applies the per-probe deadline and the inclusive
+  `max_ping` comparison.
 * `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java`
-  creates fresh session IDs after acceptance, tracks ongoing high-ping ticks,
-  and releases reserved capacity when a session ends.
+  creates fresh session IDs after acceptance, atomically reserves a slot before
+  Accept, and releases reserved capacity when a session ends. `HandshakeHandler`
+  tracks high-ping ticks.
 * `Client Mod/src/main/java/gladiatorsarius/coworld_client/handshake/HelloSender.java`
   builds Hello from client settings, simulation distance, versions, and the
   live schema constants. Its `build(settings, cache)` overload can carry a
@@ -497,10 +499,13 @@ ClientNetworkBridge (PingEcho)        |
 
 #### 6. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/PingProber.java` (Create)
 
-* **Rationale**: Isolate the three-probe measurement and deadline logic.
-* **Planned changes**: Send probes sequentially, bind each reply to its
-  outstanding probe, reject changed, duplicate, invalid, or late replies,
-  require all three samples, calculate the median RTT, and compare it to
+* **Rationale**: Isolate the three-probe generation, echo matching, and RTT
+  median calculation. Deadline and ping-cap policy stay in `HandshakeHandler`.
+* **Implemented content**: Sends probes sequentially with random nonces and
+  positions 1-3, matches each accepted echo to the outstanding nonce and
+  sequence, records RTT milliseconds, requires three samples, and calculates
+  the median. `HandshakeHandler` rejects invalid, changed, duplicate, and late
+  echoes, applies the per-probe deadline, and compares the median with
   `max_ping`.
 
 #### 7. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java` (Create)
@@ -541,10 +546,11 @@ ClientNetworkBridge (PingEcho)        |
 
 * **Rationale**: Keep Fabric client-only networking calls out of common client
   code and expose the shared payload registration to the client entrypoint.
-* **Implemented content**: Registers the five client payload handlers, sends
-  Hello and echoes through the existing Minecraft connection, and logs Accept
-  or Decline. No common client handshake state or sync/rejoin orchestrator is
-  driven by those results.
+* **Implemented content**: Registers PingProbe, Accept, and Decline receivers,
+  sends Hello and echoes through the existing Minecraft connection, and logs
+  Accept or Decline. `CoWorldClient` registers the five payload codecs; no
+  common client handshake state or sync/rejoin orchestrator is driven by those
+  results.
 
 #### 12. `Client Mod/src/main/java/gladiatorsarius/coworld_client/CoWorldClient.java` (Modify)
 
