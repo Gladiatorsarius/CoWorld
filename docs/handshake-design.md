@@ -407,9 +407,11 @@ ClientNetworkBridge (PingEcho)        |
   malformed packets as `failed negotiation` and send no data derived from the
   invalid declaration.
 * **Replay or stale probe packets**: Bind PingEcho to the current connection,
-  sequence, and random nonce. Ignore duplicates, stale sequences, and unknown
-  probes. A session ID is random per accepted connection and is never persisted
-  as a cache key.
+  sequence, and random nonce. While `PROBING`, `HandshakeHandler` sends
+  `Decline(failed negotiation)` for duplicate, stale-sequence, unknown,
+  changed, invalid, or late echoes; echoes outside `PROBING` are ignored. A
+  session ID is random per accepted connection and is never persisted as a
+  cache key.
 * **Handshake resource exhaustion**: Keep one bounded negotiation state machine
   per connection, start deadlines at login/probe receipt, and discard all state
   on timeout or disconnect. No ownership or cache work is created. No slot is
