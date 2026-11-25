@@ -10,15 +10,16 @@
 
 CoWorld needs a connection-scoped negotiation before it can move simulation work
 from the real server to a player's computer. The handshake uses custom packets
-on the existing Minecraft connection. It reports client capabilities and cache
-metadata, measures network latency with three required echo probes, and then
-either authorizes synchronization or declines offloading.
+on the existing Minecraft connection. It reports client capabilities and a live
+schema identity, measures network latency with three required echo probes, and
+then sends Accept or Decline. On this branch the client sends no cache
+declaration and Accept does not start synchronization.
 
 The handshake must not become a new login requirement. A client that does not
 have CoWorld, opts out, fails validation, or misses a deadline continues normal
-play on the real server. An accepted handshake creates a fresh live session and
-authorizes synchronization; it does not grant chunk ownership or start ticking
-chunks.
+play on the real server. An accepted handshake creates a fresh session record
+and sends Accept; it does not grant chunk ownership, start ticking chunks, or
+start sync or rejoin.
 
 ## The Problem
 
@@ -28,32 +29,30 @@ without first answering several questions:
 * Which CoWorld and wire-protocol versions can both sides use?
 * Does the client want offloading and have enough disk allowance for the cache?
 * Is the connection responsive enough for interactive simulation?
-* Can an existing cache be considered compatible with this server and world?
+* Could a future cache declaration be compatible with this server and world?
 * Can the server decline without kicking a player or changing chunk ownership?
 
 A failed or incomplete negotiation must leave the authoritative server world
-unchanged. A successful negotiation must provide enough information for the
-later sync or rejoin flow to choose the right path, while keeping cache claims
-and ownership decisions separate from the handshake.
+unchanged. V1 carries no cache claims and selects no sync/rejoin path; a future
+flow must keep cache claims and ownership decisions separate from the handshake.
 
 ## Goals
 
 * Exchange a versioned Hello, three unchanged ping echoes, and one terminal
   result per negotiated connection over the existing Minecraft connection.
-  A normal timeout or disconnect sends no Decline; terminal outcomes are not
-  duplicated.
-* Reject unsupported versions, invalid fields, zero or invalid disk allowance,
-  missed probes, late probes, and median RTT above `max_ping` without kicking
-  the player.
+  A missing Hello or disconnect sends no Decline; a probe deadline expiring
+  sends `Decline(failed negotiation)`. Terminal outcomes are not duplicated.
+* Reject unsupported versions, invalid fields, zero or negative disk allowance,
+  missed or late probes, and median RTT above `max_ping` without kicking the
+  player.
 * Compute the accepted candidate radius as the smaller of the client's
   simulation distance and the configured maximum ownership radius.
 * Create a fresh connection-scoped session ID only after successful
   negotiation; never treat it as a persistent cache key or a resumed session.
 * Preserve normal real-server play when the client has no CoWorld support,
   declines offloading, disconnects, or times out.
-* Route compatible cache metadata to the rejoin flow and incompatible or
-  unusable cache metadata to initial sync, without transferring chunks during
-  the handshake.
+* Send no cache declaration from the V1 client and perform no cache validation
+  or rejoin/initial-sync routing after Accept; no chunks are transferred.
 * Keep pending probes, negotiation state, and any provisional session state
   isolated to the connection and discard them on disconnect.
 
@@ -72,12 +71,14 @@ and ownership decisions separate from the handshake.
 
 ## Open Questions
 
-* The snapshot adapter still needs to define the schema represented by
-  `schema_id` and its integer version. Until then, a null value or exact-match
-  failure selects initial sync.
-* V1 live offloading is disabled when no versioned snapshot-adapter manifest
-  and concrete live schema IDs exist. Full sync cannot enable unsupported
-  adapter state.
+* V1 declares the schema represented by `schema_id` and its integer version as
+  `ProtocolVersion.V1_SCHEMA_ID` / `ProtocolVersion.V1_SCHEMA_VERSION`. Both
+  endpoints send those constants; an exact-match failure declines with
+  `incompatible versions` before probing. There is no rejoin selection from a
+  null or mismatched schema on this branch.
+* There is no versioned snapshot-adapter manifest or adapter-readiness gate.
+  The constants are the only current schema identity, and no code checks an
+  adapter implementation before Accept.
 
 ## Technical Plan (Architecture)
 
@@ -100,7 +101,8 @@ authorize synchronization and observe ongoing player ping.
   the supported CoWorld and protocol versions match the server's policy.
 * `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/HandshakeHandler.java`
   owns the per-connection state machine, Hello deadline, version and field
-  checks, Accept/Decline construction, and transition into sync or rejoin.
+  checks, and Accept/Decline construction. It does not transition into sync or
+  rejoin.
 * `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/PingProber.java`
   sends three sequential probes, validates unchanged echoes, applies the
   per-probe deadline, calculates the median RTT, and compares it inclusively
@@ -110,7 +112,8 @@ authorize synchronization and observe ongoing player ping.
   and releases reserved capacity when a session ends.
 * `Client Mod/src/main/java/gladiatorsarius/coworld_client/handshake/HelloSender.java`
   builds Hello from client settings, simulation distance, versions, and the
-  cache compatibility declaration.
+  live schema constants. Its `build(settings, cache)` overload can carry a
+  `CacheDeclaration`, but the join path never supplies one.
 * `Client Mod/src/client/java/gladiatorsarius/coworld_client/client/ClientNetworkBridge.java`
   immediately echoes each valid probe payload unchanged. The server rejects
   expired or unknown probes.
@@ -118,68 +121,69 @@ authorize synchronization and observe ongoing player ping.
 ### Packet schema
 
 The five handshake packets use the common Fabric custom-payload codec.
-Strings use
-UTF-8 and are limited by encoded byte length, never character count. UUIDs use exactly 16 bytes in most-significant-byte-first order.
-Unsigned values cannot encode negatives. Cache declarations and manifest lists
+Strings use UTF-8, are limited by encoded byte length rather than character
+count, and are decoded strictly. UUIDs use exactly 16 bytes in
+most-significant-byte-first order. Integer fields are big-endian Java `int` or
+`long` values except the unsigned byte fields called out below; negative values
+are rejected where a field is validated. Cache declarations and manifest lists
 are bounded before allocation so a malformed packet cannot force unbounded
-memory use. The complete Hello payload is at most 64 MiB. Individual string
-fields are UTF-8, length-bounded, and counted by encoded byte length. The
-cached execution-manifest portion is at most 32 MiB; all manifest framing,
-cache UUIDs, versions, schema fields, and Hello framing remain inside the
-separate 64 MiB complete-payload limit.
+memory use. The complete Hello payload is at most 64 MiB and the cached
+execution-manifest portion at most 32 MiB.
 
-Every decoder must consume exactly the declared fields and reject trailing or
-padding bytes. It must reject malformed length prefixes before allocating.
+Hello and PingEcho malformed-input decoders return an invalid payload after
+draining the input; the server declines those. The other decoders reject
+trailing bytes. Malformed length prefixes are rejected before allocation.
 
 | Record | Field | Type and bounds | Required validation |
 |---|---|---|---|
 | Hello | release version | UTF-8 string, 1-32 encoded bytes | Exact CoWorld release match for V1 |
-| Hello | protocol version | Unsigned 32-bit integer | Exact V1 value; no downgrade |
+| Hello | protocol version | Signed 32-bit `int` | Exact V1 value; no downgrade |
 | Hello | offloading preference | Boolean | Required |
-| Hello | disk allowance | Unsigned 64-bit integer, bytes | Reject missing, negative, or noninteger input; zero means Decline |
-| Hello | client simulation distance | Unsigned 32-bit integer, chunks | Reject values outside the signed 32-bit server model used by Minecraft; zero remains valid |
-| Hello | live snapshot schema ID | Nullable UTF-8 string, 1-128 encoded bytes | Presence bit distinguishes absent from present; live server and client values must match for offloading |
-| Hello | live snapshot schema version | Unsigned 32-bit integer | If live schema ID is absent, encode 0; otherwise exact server/client match is required |
-| Hello | cache declaration | Presence byte plus optional declaration | `0` means no cache; `1` means one complete declaration; all other values are malformed |
-| Cache declaration | stable server UUID | Exactly 16 bytes | Required when a cache is declared |
-| Cache declaration | stable world UUID | Exactly 16 bytes | Required when a cache is declared |
-| Cache declaration | cached CoWorld version | UTF-8 string, 1-32 encoded bytes | Compared after Accept |
-| Cache declaration | cached Minecraft version | UTF-8 string, 1-32 encoded bytes | Compared after Accept |
-| Cache declaration | cache format version | Unsigned 32-bit integer | Compared after Accept |
-| Cache declaration | hash format version | Unsigned 32-bit integer | Compared after Accept |
-| Cache declaration | snapshot `schema_id` | Nullable UTF-8 string, 1-128 encoded bytes | An explicit presence bit distinguishes null from an empty or invalid string |
-| Cache declaration | snapshot schema version | Unsigned 32-bit integer | If `schema_id` is absent, encode 0 and reject any nonzero value; if present, exact match is required |
-| Cache declaration | cached execution manifest | Bounded manifest entry list, at most 100,000 entries and 32 MiB of encoded manifest bytes | `u32` entry count; each entry uses `u8` root kind, `u32` UTF-8 path-byte length, path bytes, `u64` stored length, and exactly 32 hash bytes; reject malformed lists |
-| Manifest entry | root kind | Unsigned 8-bit enum: `mods=1`, `config=2`, `versions=3`, `libraries=4` | Required; the server compares against the canonical execution-manifest format |
-| Manifest entry | relative path | UTF-8 bytes, at most 4,096 bytes | No absolute path, `..`, symlinks, platform normalization collisions, or duplicate normalized paths |
-| Manifest entry | stored byte length | Unsigned 64-bit integer | Must agree with the cached file's verified or declared length under the server-side manifest rules |
-| Manifest entry | SHA-256 content hash | Exactly 32 bytes | Must match canonical digest bytes |
+| Hello | disk allowance | Signed 64-bit `long`, bytes | Negative values make Hello invalid; zero or negative declines; values above `Long.MAX_VALUE` are not representable |
+| Hello | client simulation distance | Signed 32-bit `int`, chunks | Negative values make Hello invalid; zero remains valid but yields zero radius |
+| Hello | live snapshot schema ID | Nullable UTF-8 string, 1-128 encoded bytes | Presence bit distinguishes absent from present; both endpoints send `ProtocolVersion.V1_SCHEMA_ID` and the server requires an exact match |
+| Hello | live snapshot schema version | Signed 32-bit `int` | If live schema ID is absent, encode 0; otherwise exact server/client match is required |
+| Hello | cache declaration | Presence byte plus optional declaration | `0` means no cache; `1` means one complete declaration; all other values are malformed. The V1 client always sends `0` |
+| Cache declaration | stable server UUID | Exactly 16 bytes | Required when a cache is declared; not compared by V1 endpoints |
+| Cache declaration | stable world UUID | Exactly 16 bytes | Required when a cache is declared; not compared by V1 endpoints |
+| Cache declaration | cached CoWorld version | UTF-8 string, 1-32 encoded bytes | Defined in the codec; not compared by V1 endpoints |
+| Cache declaration | cached Minecraft version | UTF-8 string, 1-32 encoded bytes | Defined in the codec; not compared by V1 endpoints |
+| Cache declaration | cache format version | Signed 32-bit `int` | Negative values rejected; not compared by V1 endpoints |
+| Cache declaration | hash format version | Signed 32-bit `int` | Negative values rejected; not compared by V1 endpoints |
+| Cache declaration | snapshot `schema_id` | Nullable UTF-8 string, 1-128 encoded bytes | Presence bit distinguishes null from an empty or invalid string; not compared by V1 endpoints |
+| Cache declaration | snapshot schema version | Signed 32-bit `int` | Negative values rejected; must be 0 when `schema_id` is absent; not compared by V1 endpoints |
+| Cache declaration | cached execution manifest | Bounded manifest entry list, at most 100,000 entries and 32 MiB of encoded manifest bytes | Signed 32-bit non-negative count; each entry uses `u8` root kind, signed 32-bit UTF-8 path-byte length, path bytes, signed 64-bit non-negative stored length, and exactly 32 hash bytes; reject malformed lists |
+| Manifest entry | root kind | Unsigned 8-bit enum: `mods=1`, `config=2`, `versions=3`, `libraries=4` | Required; no server-side manifest comparison is performed by V1 |
+| Manifest entry | relative path | UTF-8 bytes, 1-4,096 bytes | Reject backslashes, absolute/tilde paths, NUL, empty or `.`/`..` segments, illegal characters, reserved Windows names, and duplicate or platform-colliding paths |
+| Manifest entry | stored byte length | Signed 64-bit `long` | Negative values rejected; no cached file length is checked by V1 |
+| Manifest entry | SHA-256 content hash | Exactly 32 bytes | Length checked; no digest is verified by V1 |
 
 Manifest entries use unsigned UTF-8 lexicographic key order by root kind first
-and normalized relative-path bytes second. Normalize separators to `/`, reject
-absolute paths and `..` segments, and do not apply Unicode normalization.
-Reject duplicate normalized paths, platform case/normalization collisions, and
-entries outside one of the four root kinds. Encode strings and paths as
-unsigned byte-length prefixes followed by raw bytes, with no terminator or end
-tag. Integers are signed/unsigned big-endian according to their table type.
+and path bytes second. Path validation rejects backslashes, absolute or tilde
+paths, empty/`.`/`..` segments, `:` and Windows-illegal characters, and
+reserved Windows names. Duplicate detection NFKC-normalizes and lowercases each
+path and strips trailing dots/spaces (`platformAlias`) to catch platform
+collisions. Strings and paths use byte-length prefixes followed by raw bytes,
+with no terminator or end tag.
 
 | Record | Field | Type and bounds | Required validation |
 |---|---|---|---|
-| PingProbe | probe nonce | Unsigned 64-bit integer | Unique for the outstanding probe and not reused within the connection |
+| PingProbe | probe nonce | Signed 64-bit `long` | Drawn randomly per probe; only the outstanding nonce is accepted and there is no per-connection reuse tracking |
 | PingProbe | probe sequence | Unsigned 8-bit integer, 1-3 | Must match one of the three sequential probe positions |
-| PingEcho | echoed nonce | Unsigned 64-bit integer | Must exactly equal the current PingProbe nonce |
+| PingEcho | echoed nonce | Signed 64-bit `long` | Must exactly equal the current PingProbe nonce |
 | PingEcho | echoed sequence | Unsigned 8-bit integer, 1-3 | Must exactly equal the current PingProbe sequence |
-| Accept | protocol version | Unsigned 32-bit integer | Must equal the agreed protocol |
-| Accept | requested ownership radius | Unsigned 32-bit integer, chunks | `min(client simulation distance, max_ownership_radius)` |
-| Accept | sync speed limit | Unsigned 64-bit integer, bytes/second | Must be the configured server value |
+| Accept | protocol version | Signed 32-bit `int` | Must equal the agreed V1 protocol |
+| Accept | requested ownership radius | Signed 32-bit `int`, chunks | `min(client simulation distance, max_ownership_radius)`, non-negative |
+| Accept | sync speed limit | Signed 64-bit `long`, bytes/second | Must be the configured non-negative server value |
 | Accept | session ID | 16-byte UUID | Freshly generated for this accepted connection |
 | Decline | reason enum | Unsigned 8-bit integer | Exact mapping: `offloading disabled=1`, `client opted out=2`, `capacity reached=3`, `ping above the cap=4`, `incompatible versions=5`, `failed negotiation=6` |
 
-The server accepts a PingEcho only when it belongs to the current
-connection, sequence, and nonce. Stale, out-of-order, duplicate, unknown,
-cross-connection, changed, invalid, or late replies do not create a RTT sample.
-The session ID is random 16-byte UUID data; it is validated only by the live
-server session record and is never derived from persistent cache identity.
+The server accepts a PingEcho only when it belongs to the current connection,
+sequence, and nonce. Stale, out-of-order, duplicate, unknown, cross-connection,
+changed, invalid, or late replies do not create a RTT sample; an invalid reply
+declines with `failed negotiation`. The session ID is random 16-byte UUID data
+generated by `SessionManager`; the handshake does not validate an incoming
+session ID.
 
 ### Rejection routing
 
@@ -188,21 +192,23 @@ server session record and is never derived from persistent cache identity.
 | No Hello received by the Hello deadline | None | Continue normal play |
 | Malformed Hello or invalid integer/string field | Decline, reason `failed negotiation` | Continue normal play |
 | CoWorld or protocol version mismatch | Decline, reason `incompatible versions` | Continue normal play |
-| Server and client do not support the same live snapshot adapter/schema | Decline, reason `incompatible versions` | Continue normal play; full sync cannot repair unsupported mapping |
-| Server `offload_enabled=false` | Decline, reason `offloading disabled` | Continue normal play; existing owners are requested to hand back |
+| Live schema ID/version mismatch against the V1 constants | Decline, reason `incompatible versions` | Continue normal play; no adapter manifest or sync fallback exists |
+| Server `offload_enabled=false` | Decline, reason `offloading disabled` | Continue normal play; no hand-back request is sent on this branch |
 | Client preference is opt-out | Decline, reason `client opted out` | Continue normal play |
 | Zero disk allowance | Decline, reason `offloading disabled` | Continue normal play |
-| Requested ownership radius is zero | Decline, reason `offloading disabled` | Continue normal play; do not reserve sub-server capacity or Accept |
+| Requested ownership radius is zero | Decline, reason `offloading disabled` | Continue normal play; do not reserve a slot or send Accept |
 | Server offloading capacity unavailable | Decline, reason `capacity reached` | Continue normal play |
 | Missing, invalid, duplicate, out-of-order, changed, or late ping reply | Decline, reason `failed negotiation` | Require all three valid replies; continue normal play |
+| Probe deadline expires without a valid reply | Decline, reason `failed negotiation` | Require all three valid replies; continue normal play |
 | Median RTT above `max_ping` | Decline, reason `ping above the cap` | Continue normal play |
-| Median RTT at or below `max_ping` | Accept | Begin cache validation and sync/rejoin routing |
+| Median RTT at or below `max_ping` | Accept | Client logs the session ID; no sync or rejoin follows on this branch |
 | Connection ends during Hello or probing | None | Discard state; no ownership or chunk change |
-| Malformed cache declaration | Decline, reason `failed negotiation` | Cache claims are declared by Hello and are not proof of compatibility |
+| Malformed cache declaration | Decline, reason `failed negotiation` | V1 client sends none; no cache validation is performed |
 
-Missing, negative, or noninteger disk allowance follows the malformed-Hello
-branch and sends `failed negotiation`. The server never sends Decline after a
-disconnect or missing-Hello timeout.
+A negative disk allowance makes Hello invalid and follows the malformed-Hello
+branch; the wire field is an integer, so a noninteger allowance cannot be
+encoded. The server never sends Decline after a disconnect or missing-Hello
+timeout, but a probe deadline expiry does send `Decline(failed negotiation)`.
 
 ### State flow
 
@@ -230,74 +236,61 @@ PROBING
   |--probe reply invalid/late/missing --> DECLINE(failed negotiation) --> NORMAL_PLAY
   |--three valid replies, median > cap --> DECLINE(ping above the cap) --> NORMAL_PLAY
   |--three valid replies, median <= cap
-                                      --> ACCEPT + SessionId --> SYNC_OR_REJOIN
+                                      --> ACCEPT + SessionId --> ACCEPTED
 ```
 
-After acceptance, the live session has one additional state transition:
+After acceptance the server observes `player.connection.latency()` each tick.
+Reaching `high_ping_ticks` above `max_ping` clears the local session and its
+reserved slot and logs the event; no chunk hand-back or ownership change is
+started by that threshold on this branch.
 
 The client follows the same connection-local flow from its side:
 
 ```text
 send Hello -> echo probe 1 -> echo probe 2 -> echo probe 3
                                   |
-                         Accept -> wait for sync/rejoin
+                         Accept -> log session ID
                          Decline/timeout -> remain in normal play
 ```
 
 ### Hello validation and cache handoff
 
 Hello carries the CoWorld release version, exact protocol version, offloading
-preference, nonnegative integer disk allowance, client simulation distance, and
-live snapshot-adapter identity/version plus one cache declaration. The live
-adapter fields use the same nullable-ID/presence rule as cache metadata. The
-server and client live adapter IDs and versions must match exactly before
-Accept. The declaration is either no previous cache or a record
-containing the stable server and world UUIDs, cached CoWorld and Minecraft
-versions, cache-format and hash-format versions, a nullable `schema_id` string
-and integer schema version, and the cached execution manifest with file hashes.
-When `schema_id` is absent, the field's presence bit is false and the schema
-version is zero; a present ID is a 1-128-encoded-byte UTF-8 string and uses the
-exact schema version declared with it.
+preference, signed 64-bit disk allowance, client simulation distance, and the
+live schema identity/version. Both endpoints take that identity from
+`ProtocolVersion.V1_SCHEMA_ID` and `ProtocolVersion.V1_SCHEMA_VERSION`; the
+server requires an exact match before probing. The shared codec also defines a
+nullable `schema_id` plus version for cache metadata and the optional cache
+declaration with stable server/world UUIDs, versions, format versions, and a
+bounded execution manifest with hashes. `HelloSender` has an overload that
+accepts a `CacheDeclaration`, but the join path always passes `null`.
 
-The server rejects malformed values and a zero allowance for offloading, but it
-does not reject an otherwise compatible connection merely because the cache is
-old or unusable. After Accept, cache compatibility and integrity validation
-select rejoin or initial sync. `schema_id` and its version must match exactly; null or mismatch selects initial
-sync. Completed chunk inventory and per-chunk hashes are exchanged through
-rejoin, not used as proof during Hello.
+The server rejects malformed values, unsupported versions, a schema mismatch,
+a zero or negative allowance, and a zero radius. It does not validate a cache
+claim after Accept because no cache claim is sent on this branch; there is no
+cache compatibility or integrity check, no rejoin/initial-sync selection, and
+no chunk inventory or hash exchange. The server entrypoint configures the V1
+constants, so a Hello with no schema or a mismatch declines with
+`incompatible versions` rather than routing to initial sync.
 
-In V1, a null or mismatched snapshot `schema_id` is a cache-routing decision,
-not a live CoWorld/protocol incompatibility. It keeps the handshake compatible
-and routes validation toward initial sync. The snapshot-adapter contract is
-separate from this routing: if the server and client do not support the same
-adapter/schema mapping, affected state is ineligible for canonical hashing,
-cache reuse, and offloading. Full initial sync cannot repair that unsupported
-mapping, and the implementation must not claim offloading readiness for that
-state. A null schema on the initial V1 implementation always means initial
-sync rather than rejoin.
-
-Before probing completes, the server checks whether the live server and client
-adapter capabilities match. If they do not, it declines with
-`incompatible versions` instead of reserving capacity or sending Accept.
-Initial sync remains available only for a compatible live adapter whose cached
-copy is missing, stale, corrupt, or otherwise unusable.
-
-For V1, a versioned live adapter manifest and concrete live adapter IDs are
-required before offloading. If either endpoint has no implementation-ready
-adapter, offloading is ineligible and the server continues normal play rather
-than treating an initial sync as proof of adapter support.
+Before probing completes, the server compares the live schema constants it was
+constructed with against the values in Hello. If they do not match, it declines
+with `incompatible versions` before reserving a slot or sending Accept. There
+is no versioned adapter manifest, no adapter-readiness gate, and no sync
+fallback: V1 negotiation alone does not claim offloading readiness.
 
 ### Accept and Decline behavior
 
 Accept contains the agreed protocol, the candidate radius
 `min(client simulation distance, max_ownership_radius)`, the configured sync
-speed limit, and a newly generated session ID. It authorizes synchronization
-only. Ownership claims, redstone-set rules, occupancy checks, TPS reductions,
-readiness, and handover commitment remain in their existing components.
+speed limit, and a newly generated session ID. On this branch it carries those
+values only: the client logs the session ID and no sync, ticking, ownership
+claim, redstone-set rule, occupancy check, TPS reduction, readiness check, or
+handover commitment follows.
 
 If the computed candidate radius is zero, the server sends
-`offloading disabled` instead of Accept. It does not reserve sub-server
-capacity and does not start sync or rejoin for that result.
+`offloading disabled` instead of Accept. It does not reserve a slot and does
+not start sync or rejoin for that result.
 
 Decline contains one reason from the documented set: offloading disabled,
 client opted out, capacity reached, ping above the cap, incompatible versions,
@@ -314,10 +307,11 @@ requires all three replies; it never calculates a median from fewer samples.
 Disconnecting at any state discards probes, negotiation state, and any
 uncommitted session data. No handshake failure can crash or kick the player.
 
-After acceptance, `SessionManager` counts consecutive real-server ticks whose
-built-in player ping exceeds `max_ping`. Reaching `high_ping_ticks` begins the
-existing hand-back flow, and a measurement at or below the cap resets the
-counter.
+After acceptance, `HandshakeHandler` counts consecutive real-server ticks
+whose built-in player ping (`player.connection.latency()`) exceeds `max_ping`.
+Reaching `high_ping_ticks` clears the local session, releases its reserved
+slot, and logs the event; no hand-back or ownership flow is started. A
+measurement at or below the cap resets the counter.
 
 ### Data flow
 
@@ -329,10 +323,9 @@ Common CoWorldPackets <----> Server HandshakeHandler
         ^                             |
         |                             +--> PingProber
 ClientNetworkBridge (PingEcho)        |
-                                      +--> SessionManager
+                                      +--> SessionManager (session ID + reserved slot count)
                                       |
-                         Accept ---> Sync coordinator
-                         cache ----> Rejoin validator / Initial sync
+                         Accept/Decline ---> client logs the result
 ```
 
 ## Alternatives Considered
@@ -396,14 +389,14 @@ ClientNetworkBridge (PingEcho)        |
 * **State safety**: Session IDs are fresh per accepted connection. Pending
   probes and negotiation state must not survive disconnect or be shared between
   players.
-* **Capacity safety**: Capacity acceptance atomically reserves a sub-server slot
-  for the live session before sending Accept. The reservation is released if
-  sync or bootstrap fails and follows startup, active, hand-back, and disconnect
-  states. No separate handshake may consume the same slot without the atomic
-  reservation succeeding.
-* **Storage safety**: The disk allowance is a nonnegative byte budget for all
-  cache data, including temporary and replacement files. The handshake only
-  declares the budget; sync remains responsible for reservation and writes.
+* **Capacity safety**: `SessionManager` atomically increments a numeric
+  reserved-slot count before sending Accept and decrements it on disconnect or
+  the over-cap-ping session reset. No sub-server is created on this branch and
+  there is no sync/bootstrap failure path to release a slot.
+* **Storage safety**: The disk allowance is a signed 64-bit byte count; negative
+  values are rejected and zero declines. The handshake only transmits and
+  checks that value: this branch performs no cache writes, reservation, or
+  eviction.
 
 ## Risks & Mitigations
 
@@ -417,14 +410,13 @@ ClientNetworkBridge (PingEcho)        |
   as a cache key.
 * **Handshake resource exhaustion**: Keep one bounded negotiation state machine
   per connection, start deadlines at login/probe receipt, and discard all state
-  on timeout or disconnect. Do not create ownership or cache work before
-  Accept. Do not reserve sub-server capacity during Hello or ping probing;
-  reserve it atomically only after all probes pass and immediately before
-  sending Accept.
-* **Untrusted cache declarations**: Treat declarations as claims only. Compare
-  server/world UUIDs, versions, manifest hashes, and schema identities with
-  server-owned authority after Accept. Do not trust a Hello claim to prove
-  integrity or security.
+  on timeout or disconnect. No ownership or cache work is created. No slot is
+  reserved during Hello or ping probing; the count is reserved atomically only
+  after all probes pass and immediately before sending Accept.
+* **Untrusted cache declarations**: V1 sends no cache declaration, so no Hello
+  cache claim is consumed on this branch. The codec can decode a declaration,
+  but neither endpoint compares UUIDs, versions, manifest hashes, or schema
+  identities after Accept, and no integrity check exists.
 * **Sensitive cache metadata**: Do not include file contents or secrets in the
   handshake. Log only bounded, non-sensitive rejection reasons and keep detailed
   compatibility diagnostics server-side or in normal server logs.
@@ -443,11 +435,12 @@ ClientNetworkBridge (PingEcho)        |
 
 ## Future Improvements
 
-* Define the snapshot-adapter schema represented by `schema_id` and its integer
-  version once the adapter is designed.
+* Define the snapshot-adapter schema beyond the V1 identity constants, and add a
+  versioned adapter manifest if adapter readiness must be checked.
 * Add an explicit protocol capability negotiation only if a future wire format
   requires compatible feature subsets; V1 deliberately requires exact matching.
-* Mid-session simulation-distance changes are specified in `docs/coremodel.md`.
+* Mid-session simulation-distance changes are not implemented on this branch;
+  `docs/coremodel.md` describes future behavior.
 
 ## Detailed Implementation Plan
 
@@ -458,17 +451,19 @@ ClientNetworkBridge (PingEcho)        |
 * **Rationale**: Define the shared wire contract for the five Fabric custom
   handshake payloads: `coworld:hello`, `coworld:ping_probe`,
   `coworld:ping_echo`, `coworld:accept`, and `coworld:decline`.
-* **Planned changes**: Specify record fields, encode/decode behavior, bounded
+* **Implemented content**: Record fields, encode/decode behavior, bounded
   integer and string validation, nullable `schema_id` plus schema version,
-  bounded manifest metadata, nonce and sequence fields, Decline reasons, stale
-  probe rejection, and the rule that PingEcho preserves the probe identity
-  unchanged.
+  bounded manifest metadata, nonce and sequence fields, Decline reasons, and
+  lenient Hello/PingEcho decoders that return an invalid payload. Stale probe
+  rejection is handled by `PingProber`, not by this codec; PingEcho preserves
+  the probe identity unchanged.
 
 #### 2. `Common Mod/src/main/java/gladiatorsarius/coworld_common/protocol/ProtocolVersion.java` (Create or modify)
 
 * **Rationale**: Keep the exact wire-format identifier in the shared module.
-* **Planned changes**: Expose the V1 value and exact-match compatibility check
-  used by both endpoints; do not implement downgrade or lowest-common-version
+* **Implemented content**: Exposes the V1 value and exact-match compatibility
+  check used by both endpoints, plus the `V1_SCHEMA_ID` / `V1_SCHEMA_VERSION`
+  constants sent in Hello. There is no downgrade or lowest-common-version
   selection.
 
 #### 3. `Common Mod/src/main/java/gladiatorsarius/coworld_common/config/CoWorldDefaults.java` (Create or modify)
@@ -492,13 +487,13 @@ ClientNetworkBridge (PingEcho)        |
 
 * **Rationale**: Own the server-side connection state machine and decision
   boundary.
-* **Planned changes**: Start the Hello deadline at login, accept one valid
-  Hello, invoke PingProber, send exactly one Accept or Decline, route accepted
-  cache metadata to rejoin or initial sync after Accept, and discard state on
-  disconnect. Check the server-wide offloading switch and candidate radius
-  and live adapter capability before Ping or capacity reservation. Reserve
-  capacity only after probes pass and immediately before Accept. Missing Hello
-  becomes normal play without a Decline.
+* **Implemented content**: Starts the Hello deadline at login, accepts one valid
+  Hello, invokes PingProber, sends at most one Accept or Decline, and discards
+  state on disconnect. It checks the server-wide offloading switch, candidate
+  radius, and live schema constants before probing, and reserves a slot only
+  after probes pass and immediately before Accept. There is no cache-metadata
+  routing after Accept. Missing Hello becomes normal play without a Decline; an
+  expired probe deadline sends `Decline(failed negotiation)`.
 
 #### 6. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/PingProber.java` (Create)
 
@@ -511,15 +506,17 @@ ClientNetworkBridge (PingEcho)        |
 #### 7. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java` (Create)
 
 * **Rationale**: Own accepted session identity and post-accept ping monitoring.
-* **Planned changes**: Generate a fresh session ID per accepted connection,
-  track consecutive over-cap ping ticks, reset at or below the cap, trigger
-  existing hand-back behavior at `high_ping_ticks`, and atomically reserve
-  sub-server capacity before Accept and release it on failure or disconnect.
+* **Implemented content**: Generates a fresh session ID per accepted connection
+  and atomically reserves a numeric slot before Accept. The over-cap ping tick
+  counting lives in `HandshakeHandler` and clears the session/slot at
+  `high_ping_ticks`; `SessionManager` only releases the slot when called. There
+  is no sub-server, bootstrap failure path, or hand-back behavior.
 
 #### 8. `Server Mod/src/main/java/gladiatorsarius/coworld_server/CoWorldServer.java` (Modify)
 
 * **Rationale**: Register the server payload handlers and connect handshake
-  lifecycle hooks to login, tick, disconnect, sync, and rejoin services.
+  lifecycle hooks to login, tick, and disconnect. No sync or rejoin service is
+  connected on this branch.
 * **Planned changes**: Wire HandshakeHandler, PingProber, SessionManager, and
   validated configuration without placing packet definitions in the server
   module.
@@ -528,11 +525,10 @@ ClientNetworkBridge (PingEcho)        |
 
 * **Rationale**: Build the client declaration from settings and current client
   state.
-* **Planned changes**: Send versions, offloading preference, nonnegative disk
-  allowance, simulation distance, and the cache declaration with stable
-  identities, manifest hashes, format versions, nullable `schema_id`, and
-  schema version. Send the live snapshot-adapter ID and version in Hello;
-  leave cache-adapter identity separate from live-adapter compatibility.
+* **Implemented content**: Sends versions, offloading preference, a signed
+  64-bit disk allowance, simulation distance, and the live schema ID/version in
+  Hello. The overload that accepts a `CacheDeclaration` is unused by the join
+  path, so no stable identities, manifest hashes, or format versions are sent.
 
 #### 10. Ping echo in `ClientNetworkBridge.java`
 
@@ -545,17 +541,18 @@ ClientNetworkBridge (PingEcho)        |
 
 * **Rationale**: Keep Fabric client-only networking calls out of common client
   code and expose the shared payload registration to the client entrypoint.
-* **Planned changes**: Register the five client payload handlers, send Hello and
-  echoes through the existing Minecraft connection, deliver Accept or Decline
-  to the common client handshake state.
+* **Implemented content**: Registers the five client payload handlers, sends
+  Hello and echoes through the existing Minecraft connection, and logs Accept
+  or Decline. No common client handshake state or sync/rejoin orchestrator is
+  driven by those results.
 
 #### 12. `Client Mod/src/main/java/gladiatorsarius/coworld_client/CoWorldClient.java` (Modify)
 
-* **Rationale**: Start the Hello flow after login and route the result into sync
-  or normal-play behavior.
-* **Planned changes**: Wire HelloSender and cache metadata providers, accept the
-  server's decision, log Decline reasons without an in-game message, and pass
-  accepted metadata to the sync or rejoin orchestrator.
+* **Rationale**: Register the shared payload types on the client. The Hello
+  flow and result logging live in `ClientNetworkBridge`.
+* **Implemented content**: Registers the five payload codecs only. There are no
+  cache metadata providers, no accepted-metadata handoff, and no sync or rejoin
+  orchestrator on this branch.
 
 #### 13. `docs/handshake.md` (Modify)
 
@@ -575,45 +572,39 @@ ClientNetworkBridge (PingEcho)        |
 
 * **Rationale**: Verify the shared wire contract independently of either
   endpoint.
-* **Planned changes**: Test round-trip encoding for all five handshake records,
-  each payload ID, malformed and out-of-range fields, nullable schema values,
-  Decline reason values, nonce/sequence binding, and unchanged probe/echo
-  payload identity.
-  Include total Hello size limits, manifest entry and path limits, canonical
-  root-kind/path ordering and oversized declaration rejection.
+* **Retained tests**: Three tests cover rejection of negative schema versions,
+  several unsafe manifest paths, and exact V1 protocol matching. Round-trip
+  encoding, payload IDs, Decline values, size limits, canonical ordering, and
+  oversized declarations are not covered by a retained test on this branch.
 
 #### 16. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/HandshakeHandlerTest.java` (Create)
 
 * **Rationale**: Verify server state transitions and fallback behavior.
-* **Planned changes**: Cover valid acceptance, missing Hello, invalid fields,
-  version mismatch, opt-out, zero allowance, duplicate terminal decisions,
-  server-wide offloading disable, radius zero, disconnect cleanup, and routing
-  to sync versus rejoin after Accept. Cover live adapter mismatch and
-  post-probe capacity reservation.
+* **Retained tests**: Four tests cover ignoring an echo before Hello, ignoring
+  packets after a terminal state, accepting a null schema when neither side
+  configures one, and reaching Accept after three echoes with the concrete V1
+  schema. Missing Hello, invalid fields, version mismatch, opt-out, allowance
+  and radius rejection, capacity, disconnect cleanup, and sync/rejoin routing
+  have no retained test on this branch.
 
-#### 17. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/PingProberTest.java` (Create)
+#### 17. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/PingProberTest.java` (Not present)
 
-* **Rationale**: Verify the measurable latency policy.
-* **Planned changes**: Cover three sequential probes, unchanged echoes,
-  invalid/late/missing replies, median calculation, equality at `max_ping`,
-  rejection above the cap, and the requirement that fewer than three samples
-  cannot pass.
+* **Status**: No dedicated prober test is retained on this branch. The three
+  sequential probes and unchanged echoes are exercised indirectly by
+  `HandshakeHandlerTest`; median equality/above-cap behavior and deadline
+  expiry have no direct test.
 
-#### 18. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/SessionManagerTest.java` (Create)
+#### 18. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/SessionManagerTest.java` (Not present)
 
-* **Rationale**: Verify connection-scoped session identity and ongoing ping
-  handling.
-* **Planned changes**: Cover fresh IDs on reconnect, consecutive over-cap tick
-  counting, reset at or below the cap, hand-back trigger, and atomic capacity
-  reservation/release on failure or disconnect.
+* **Status**: No dedicated session test is retained on this branch. Session ID
+  generation and slot reservation are exercised indirectly through
+  `HandshakeHandlerTest`; over-cap tick counting and slot release are not.
 
-#### 19. `Client Mod/src/test/java/gladiatorsarius/coworld_client/handshake/HelloSenderTest.java` (Create)
+#### 19. `Client Mod/src/test/java/gladiatorsarius/coworld_client/handshake/HelloSenderTest.java` (Not present)
 
-* **Rationale**: Verify that the client declares the exact settings and cache
-  metadata required by the server.
-* **Planned changes**: Cover opt-in and opt-out, disk allowance boundaries,
-  simulation distance, no-cache declaration, complete cache declaration,
-  nullable schema ID, and schema version.
+* **Status**: No HelloSender test is retained on this branch. The only client
+  test is `ClientSettingsTest`, which checks rejection of a negative disk
+  allowance.
 
 #### 20. Probe echo coverage
 
@@ -645,23 +636,28 @@ ClientNetworkBridge (PingEcho)        |
 
 ### Verification Plan
 
-* **Test policy**: The detailed plan's listed JUnit classes are permanent test targets, not ad-hoc
-  scripts. They have not yet been added to this branch. A source-compiled harness may verify
-  state transitions during development, but it must not replace retained tests or connected-client
-  and in-game verification.
+* **Test policy**: The retained JUnit classes on this branch are
+  `CoWorldPacketsTest` (three tests), `HandshakeHandlerTest` (four), and
+  `ClientSettingsTest` (one). `PingProberTest`, `SessionManagerTest`, and
+  `HelloSenderTest` are not present. No source-compiled harness replaces these
+  retained tests or connected-client and in-game verification.
 
 * **Common build**: Run `./gradlew build` inside `Common Mod/`.
 * **Server build and tests**: Run `./gradlew build` inside `Server Mod/`.
 * **Client build and tests**: Run `./gradlew build` inside `Client Mod/`.
-* **Protocol checks**: Confirm all five handshake IDs, field encodings, exact
-  protocol matching, and round-trip tests pass.
-* **Behavior checks**: Confirm normal play survives no Hello, invalid Hello,
-  failed probes, version mismatch, opt-out, disconnect, and cache mismatch.
-* **Timing checks**: Confirm three probes are mandatory, median equality passes,
-  above-cap median declines, and each timeout uses real-server ticks.
-* **Integration check**: With a compatible client, verify Accept leads to sync
-  or rejoin without transferring chunks during the handshake. With an
-  incompatible or absent client, verify normal play continues.
+* **Protocol checks**: The five payload IDs and their codecs are registered by
+  both entrypoints; the retained common test checks exact V1 matching. No
+  round-trip encoding suite is retained.
+* **Behavior checks**: Retained tests cover an echo before Hello, packets after
+  a terminal state, a null schema on both sides, and three echoes reaching
+  Accept. Other failure paths need manual or in-game checks; there is no cache
+  mismatch path on this branch.
+* **Timing checks**: The handler requires three probes and the prober computes
+  the median, but neither median equality/above-cap behavior nor either
+  deadline has a retained test.
+* **Integration check**: Verify that Accept is logged by the client and that an
+  incompatible or absent client continues normal play. There is no sync or
+  rejoin follow-up and no chunk transfer to verify on this branch.
 
 --------------------------------------------------------------------------------
 
