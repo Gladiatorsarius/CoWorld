@@ -3,11 +3,11 @@
 Working agreement for AI coding agents in this repository. Read fully before changing anything.
 
 ## Project overview
-CoWorld ("Client-Offloaded World") is a Fabric mod set for Minecraft 26.3. A server mod and a client mod work together to offload live chunk simulation from the server to players' PCs, so a small server can support many players. The real server keeps the authoritative stored world and coordinates chunk ownership. Players without the client mod play like vanilla.
+CoWorld ("Client-Offloaded World") is a single Fabric mod for Minecraft 26.3. Its server and client sides work together to offload live chunk simulation from the server to players' PCs, so a small server can support many players. The real server keeps the authoritative stored world and coordinates chunk ownership. Players without the client side play like vanilla.
 
 ## Repository layout
-- `Client Mod/`, `Server Mod/`, `Common Mod/`: three standalone Fabric mod projects. There is no root Gradle build.
-- Common Mod holds the shared language both endpoints must agree on byte for byte: wire protocol, canonical chunk hash, execution manifests, shared types, config defaults. Shared behavior stays in the mod that performs it.
+- `CoWorld/`: the single Fabric mod project. One Gradle build, one `fabric.mod.json` (environment `*`), one jar. `src/main` holds common, server and client-shared code; `src/client` holds client-only code.
+- The `gladiatorsarius.coworld.common` package holds the shared language both endpoints must agree on byte for byte: wire protocol, canonical chunk hash, execution manifests, shared types, config defaults. Shared behavior stays in the package that performs it.
 - `docs/`: the system design. Entry point: `docs/coremodel.md`.
 - `docs/folder-structure.md`: the full project tree with every planned class and its one-line purpose. Check it before adding files.
 
@@ -18,8 +18,8 @@ CoWorld ("Client-Offloaded World") is a Fabric mod set for Minecraft 26.3. A ser
 - If your implementation has to differ from a doc, stop and ask the developer whether that is okay. If approved, update the doc in the same change. Code and docs must never drift apart.
 
 ## Build and test
-- Java 25. Build a mod with `./gradlew build` inside its own folder only do this when ask never do it for testing.
-- Client Mod and Server Mod reference Common Mod through a Gradle composite build and bundle it with jar-in-jar.
+- Java 25. Build with `./gradlew build` inside `CoWorld/` only do this when ask never do it for testing.
+- One Gradle setup; no composite build and no jar-in-jar.
 - Every feature must be tested before it counts as done.
 - Ad-hoc tests you write while developing are deleted again before committing. Do not commit them; they must not pile up.
 
@@ -36,7 +36,7 @@ Before calling a change done:
 - On coding tasks, share your plan and ask questions before writing code.
 
 ## Versioning
-- Each mod's version lives in its `gradle.properties`. Bump it with every change: feature -> minor, fix -> patch, breaking change -> major.
+- The version lives in `CoWorld/gradle.properties`. Bump it with every change: feature -> minor, fix -> patch, breaking change -> major.
 
 ## Logging
 
