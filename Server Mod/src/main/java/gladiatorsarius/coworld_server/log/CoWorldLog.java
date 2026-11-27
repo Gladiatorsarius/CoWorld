@@ -14,6 +14,10 @@ public final class CoWorldLog {
 		debugEnabled = "debug".equals(level);
 	}
 
+	public static boolean isDebugEnabled() {
+		return debugEnabled;
+	}
+
 	public static void debug(String format, Object... args) {
 		// Info level keeps debug lines visible without depending on the logging backend.
 		if (debugEnabled) LOGGER.info(format, args);

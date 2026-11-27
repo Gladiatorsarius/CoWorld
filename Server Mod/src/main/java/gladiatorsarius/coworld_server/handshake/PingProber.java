@@ -47,6 +47,7 @@ public final class PingProber {
 	private final List<Pending> pendings = new ArrayList<>(3);
 	private final List<Long> rtts = new ArrayList<>(3);
 	private int sequence;
+	private volatile boolean discarded;
 
 	public PingProber(ServerGamePacketListenerImpl listener) {
 		this(listener, new Random());
@@ -112,6 +113,7 @@ public final class PingProber {
 	}
 
 	public void discard() {
+		discarded = true;
 		for (Pending pending : pendings) {
 			// Retire first so an echo can never fall between the two maps.
 			RETIRED.put(pending.id, pending);
@@ -144,18 +146,26 @@ public final class PingProber {
 
 	public static boolean onServerboundKeepAlive(ServerCommonPacketListenerImpl listener, long id) {
 		Pending pending = ACTIVE.get(id);
-		if (pending == null) pending = RETIRED.get(id);
-		String player = listener instanceof ServerGamePacketListenerImpl game && game.player != null
-			? game.player.getGameProfile().name() : "unknown";
+		boolean active = pending != null;
+		if (!active) pending = RETIRED.get(id);
+		String player = CoWorldLog.isDebugEnabled() ? playerName(listener) : null;
 		if (pending == null || pending.listener != listener) {
 			CoWorldLog.debug("[handshake] echo forwarded to vanilla player={} id={}", player, id);
 			return false;
 		}
-		if (!ACTIVE.containsKey(id)) {
+		if (!active) {
 			CoWorldLog.debug("[handshake] echo consumed after discard player={} id={}", player, id);
 			return true;
 		}
-		pending.prober.echoes.add(new Echo(pending.sequence, id, System.nanoTime()));
+		PingProber prober = pending.prober;
+		if (prober.discarded) return true;
+		prober.echoes.add(new Echo(pending.sequence, id, System.nanoTime()));
+		if (prober.discarded) prober.echoes.clear();
 		return true;
+	}
+
+	private static String playerName(ServerCommonPacketListenerImpl listener) {
+		return listener instanceof ServerGamePacketListenerImpl game && game.player != null
+			? game.player.getGameProfile().name() : "unknown";
 	}
 }
