@@ -47,9 +47,14 @@ coworld_server/
 │   ├── CoWorldConfig.java              # loads and validates all server settings
 │   └── SyncTokenBucket.java            # per-client sync_speed_limit token bucket
 ├── handshake/                          # handshake.md
-│   ├── HandshakeHandler.java           # Hello/Accept/Decline exchange and timeouts
-│   ├── PingProber.java                 # three probes, median RTT against max_ping
+│   ├── HandshakeHandler.java           # Hello/Accept/Decline exchange, timeouts, probe drain
+│   ├── PingProber.java                 # three vanilla keepalive probes, network-thread RTT, median
 │   └── SessionManager.java             # accepted session IDs, planned high-ping tracking
+├── log/                                # configs.md log_level
+│   └── CoWorldLog.java                 # tagged normal/debug logging gate
+├── mixin/                              # network-thread keepalive interception
+│   ├── ConnectionSendMixin.java        # records send time at the Netty write
+│   └── ServerKeepAliveMixin.java       # consumes owned echoes, forwards other IDs to vanilla
 ├── sync/                               # sync.md
 │   ├── ServerWorldIdentity.java        # creates and persists server/world UUIDs
 │   ├── ExecutionManifestBuilder.java   # hashed manifests of versions/libraries/mods/config
@@ -98,6 +103,9 @@ coworld_server/
 └── arbitration/                        # multi-client-arbitration.md
     └── ClaimArbiter.java               # first-come-first-served, nearer-player tiebreak
 ```
+
+`Server Mod/src/main/resources/coworld_server.mixins.json` registers the two
+server mixins, and `fabric.mod.json` lists that config.
 
 ## Client Mod
 

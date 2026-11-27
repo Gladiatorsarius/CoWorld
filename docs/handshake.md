@@ -6,13 +6,14 @@ Immediately after normal login, negotiate CoWorld over custom packets on the exi
 
 ## Exchange
 
-The concrete V1 handshake payload IDs are `coworld:hello`, `coworld:ping_probe`,
-`coworld:ping_echo`, `coworld:accept`, and `coworld:decline`. Their encodings and
-bounds are implemented once in `CoWorldPackets` in Common Mod.
+The concrete V1 handshake payload IDs are `coworld:hello`, `coworld:accept`, and
+`coworld:decline`. Their encodings and bounds are implemented once in
+`CoWorldPackets` in Common Mod. RTT probes use vanilla keepalive packets instead
+of a CoWorld payload, so no client-mod probe handler is needed.
 
 1. The client sends Hello: CoWorld version, protocol version, offloading preference, disk allowance, client simulation distance, and the live snapshot schema identity/version. The shared codec also defines a cache declaration, but the client sends no cache declaration on this branch; `HelloSender.build(settings, cache)` accepts one, yet the join path always uses the overload that passes `null`.
-2. The real server sends three ping probes in sequence. The client immediately echoes each unchanged; the server measures each RTT and takes the median. A missing, invalid, changed, or late reply, or a probe deadline expiring, declines offloading with `failed negotiation`. All three replies are required.
-3. Accept supplies the agreed protocol, requested ownership radius in chunks, sync speed limit, and a new session ID. The radius is `min(client simulation distance, max_ownership_radius)`. On this branch the client only logs that session ID; Accept does not start sync, rejoin, ticking, or ownership.
+2. The real server sends three vanilla `ClientboundKeepAlivePacket`s in sequence, each with a negative ID that cannot equal a pending vanilla millisecond challenge. The client echoes each ID immediately through vanilla networking; the server records send and echo timestamps on the Netty network thread, cancels its own echoes before vanilla sees them, and takes the median RTT. A missing, duplicate, stale, or late reply, or a probe deadline expiring, declines offloading with `failed negotiation`. All three replies are required.
+3. Accept supplies the agreed protocol, requested ownership radius in chunks, sync speed limit, and a new session ID. The radius is `min(client simulation distance, max_ownership_radius)`. On this branch the client only logs the result; Accept does not start sync, rejoin, ticking, or ownership.
 4. Decline supplies a reason: offloading disabled, client opted out, capacity reached, ping above the cap, incompatible versions, or failed negotiation. The client logs the reason and continues normal play. No Decline is sent for a missing Hello or a disconnect.
 5. No cache metadata is exchanged after Accept, and no rejoin or initial-sync path is selected. No chunks transfer during the handshake, and none are transferred by this branch's handshake follow-up. The declared cache fields and the [rejoin](rejoin.md) / [sync](sync.md) flows remain future work.
 
@@ -32,7 +33,7 @@ The handshake only transmits and checks the allowance. This branch has no cache 
 
 ## Ping and deadlines
 
-`max_ping` is in milliseconds, default 70. The handshake checks only the three probe RTTs: a median equal to the cap passes; above it declines offloading. V1 does not monitor ping after Accept and has no high-ping threshold or hand-back behavior.
+`max_ping` is in milliseconds, default 70. The handshake checks only the three keepalive RTTs: a median equal to the cap passes; above it declines offloading. Because vanilla keepalive echoes do not wait for a client or server tick, these RTTs are independent of TPS; a frozen client window can still delay the echo and inflate RTT. V1 does not monitor ping after Accept and has no high-ping threshold or hand-back behavior.
 
 `handshake_hello_timeout_ticks` and `ping_probe_timeout_ticks` both default to 100 real-server ticks, about 5 seconds at 20 TPS. The first starts at login; the second applies separately to each outstanding probe. Missing Hello means normal non-offloading play with no Decline; an expired probe deadline sends `Decline(failed negotiation)`. CoWorld timeout or version failure must not itself crash or kick the player. A connection that ends mid-handshake has changed no chunk ownership.
 

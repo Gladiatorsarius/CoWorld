@@ -21,8 +21,6 @@ public class CoWorldClient implements ModInitializer {
 	public void onInitialize() {
 		PayloadTypeRegistry.serverboundPlay().registerLarge(CoWorldPackets.Hello.TYPE, CoWorldPackets.Hello.CODEC,
 			CoWorldPackets.HELLO_PAYLOAD_LIMIT);
-		PayloadTypeRegistry.serverboundPlay().register(CoWorldPackets.PingEcho.TYPE, CoWorldPackets.PingEcho.CODEC);
-		PayloadTypeRegistry.clientboundPlay().register(CoWorldPackets.PingProbe.TYPE, CoWorldPackets.PingProbe.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(CoWorldPackets.Accept.TYPE, CoWorldPackets.Accept.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(CoWorldPackets.Decline.TYPE, CoWorldPackets.Decline.CODEC);
 	}

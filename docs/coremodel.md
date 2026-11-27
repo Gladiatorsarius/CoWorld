@@ -24,7 +24,7 @@ Every chunk has exactly one authoritative owner. Only that owner's results modif
 
 ### Simulation distance update
 
-Fabric custom payload ID: `coworld:simulation_distance_update`. It is a post-Accept payload, separate from the five handshake records (Hello, PingProbe, PingEcho, Accept, Decline). It is a bounded, session-bound follow-up, not an ownership-grant packet.
+Fabric custom payload ID: `coworld:simulation_distance_update`. It is a post-Accept payload, separate from the three handshake payloads (Hello, Accept, Decline) and the vanilla keepalive RTT probes. It is a bounded, session-bound follow-up, not an ownership-grant packet.
 
 Fields:
 

@@ -29,7 +29,7 @@ public record ClientSettings(boolean offloading, long diskAllowance, int simulat
 			try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
 				properties.load(reader);
 			} catch (IOException | IllegalArgumentException | IllegalStateException exception) {
-				LOGGER.warn("Invalid CoWorld client config {}; offloading disabled", file);
+				LOGGER.warn("[config] invalid CoWorld client config {}; offloading disabled", file);
 				return new ClientSettings(false, 0, simulationDistance);
 			}
 		} else {
@@ -39,7 +39,7 @@ public record ClientSettings(boolean offloading, long diskAllowance, int simulat
 					"offloading=true\ndisk_allowance=" + DEFAULT_DISK_ALLOWANCE + "\n",
 					StandardCharsets.UTF_8);
 			} catch (IOException exception) {
-				LOGGER.warn("Could not write CoWorld client config {}", file, exception);
+				LOGGER.warn("[config] could not write CoWorld client config {}", file, exception);
 			}
 			properties.setProperty("offloading", "true");
 			properties.setProperty("disk_allowance", Long.toString(DEFAULT_DISK_ALLOWANCE));

@@ -10,10 +10,11 @@
 
 CoWorld needs a connection-scoped negotiation before it can move simulation work
 from the real server to a player's computer. The handshake uses custom packets
-on the existing Minecraft connection. It reports client capabilities and a live
-schema identity, measures network latency with three required echo probes, and
-then sends Accept or Decline. On this branch the client sends no cache
-declaration and Accept does not start synchronization.
+on the existing Minecraft connection for Hello and the terminal result, and
+vanilla keepalive packets for three required RTT probes. It reports client
+capabilities and a live schema identity, measures network latency without a
+tick wait, and then sends Accept or Decline. On this branch the client sends no
+cache declaration and Accept does not start synchronization.
 
 The handshake must not become a new login requirement. A client that does not
 have CoWorld, opts out, fails validation, or misses a deadline continues normal
@@ -38,8 +39,8 @@ flow must keep cache claims and ownership decisions separate from the handshake.
 
 ## Goals
 
-* Exchange a versioned Hello, three unchanged ping echoes, and one terminal
-  result per negotiated connection over the existing Minecraft connection.
+* Exchange a versioned Hello, three vanilla keepalive round trips, and one
+  terminal result per negotiated connection over the existing Minecraft connection.
   A missing Hello or disconnect sends no Decline; a probe deadline expiring
   sends `Decline(failed negotiation)`. Terminal outcomes are not duplicated.
 * Reject unsupported versions, invalid fields, zero or negative disk allowance,
@@ -83,31 +84,55 @@ flow must keep cache claims and ownership decisions separate from the handshake.
 ## Technical Plan (Architecture)
 
 The wire format belongs in Common Mod so the client and server cannot define
-different packet fields or encodings. The server owns negotiation policy and
-timeouts. The client builds the Hello and echoes probes without changing their
-contents. Session tracking remains server-side because only the real server can
-authorize synchronization.
+different packet fields or encodings. The server owns negotiation policy,
+timeouts, and all probe timing. The client builds the Hello; vanilla Minecraft
+echoes keepalive IDs immediately, so no client-mod probe handler is needed.
+Session tracking remains server-side because only the real server can authorize
+synchronization.
+
+### Probe transport and thread behavior
+
+The server sends three `ClientboundKeepAlivePacket`s in sequence with IDs whose
+sign bit is set. Vanilla uses wall-clock milliseconds for its pending keepalive
+challenge, so a negative ID can never match it. The timestamp is taken at
+`Connection.doSendPacket` on the Netty event loop, not when the tick thread
+queued the packet.
+
+On the server network thread, a mixin at the HEAD of
+`ServerCommonPacketListenerImpl.handleKeepAlive` checks the returned ID against
+the active probes for that exact listener. A matching ID records
+`System.nanoTime()` and cancels the packet so vanilla never sees it. Any other
+ID is left untouched for vanilla, which may disconnect an unexpected reply;
+this is why an ID must not leak after its probe is discarded.
+
+The client's vanilla `ClientCommonPacketListenerImpl.handleKeepAlive` echoes the
+ID immediately through vanilla networking. It has no tick wait and no CoWorld
+validation. RTT is therefore independent of server and client TPS. Known edge:
+a frozen client window delays the echo and inflates RTT; V1 does not work around
+it.
 
 ### Packet and component responsibilities
 
 * `Common Mod/src/main/java/gladiatorsarius/coworld_common/protocol/CoWorldPackets.java`
-  defines five handshake records—Hello, PingProbe, PingEcho, Accept, and
-  Decline—and their codecs. Fabric custom payload IDs are
-  `coworld:hello`, `coworld:ping_probe`, `coworld:ping_echo`, `coworld:accept`,
-  and `coworld:decline`. The class also defines field validation boundaries
-  shared by both endpoints.
+  defines three handshake records—Hello, Accept, and Decline—and their codecs.
+  Fabric custom payload IDs are `coworld:hello`, `coworld:accept`, and
+  `coworld:decline`. The class also defines field validation boundaries shared
+  by both endpoints.
 * `Common Mod/src/main/java/gladiatorsarius/coworld_common/protocol/ProtocolVersion.java`
   identifies the exact wire format. A live connection is accepted only when
   the supported CoWorld and protocol versions match the server's policy.
 * `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/HandshakeHandler.java`
   owns the per-connection state machine, Hello deadline, version and field
-  checks, and Accept/Decline construction. It does not transition into sync or
-  rejoin.
+  checks, and Accept/Decline construction. It drains probe results on the
+  server tick. It does not transition into sync or rejoin.
 * `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/PingProber.java`
-  sends three sequential probes, matches each echo to the outstanding nonce and
-  sequence, records RTT milliseconds, and calculates the median RTT.
-  `HandshakeHandler` applies the per-probe deadline and the inclusive
-  `max_ping` comparison.
+  sends three sequential vanilla keepalive probes, records network-thread echo
+  timestamps, matches each reply to its sequence and connection, records RTT
+  milliseconds, and calculates the median RTT. `HandshakeHandler` applies the
+  per-probe deadline and the inclusive `max_ping` comparison.
+* `Server Mod/src/main/java/gladiatorsarius/coworld_server/mixin/`
+  contains the network-thread interceptors for serverbound keepalive echoes and
+  clientbound keepalive writes. Mismatched replies are never consumed.
 * `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java`
   creates fresh session IDs after acceptance, atomically reserves a slot before
   Accept, and releases reserved capacity when a session ends.
@@ -116,12 +141,12 @@ authorize synchronization.
   live schema constants. Its `build(settings, cache)` overload can carry a
   `CacheDeclaration`, but the join path never supplies one.
 * `Client Mod/src/client/java/gladiatorsarius/coworld_client/client/ClientNetworkBridge.java`
-  immediately echoes each valid probe payload unchanged. The server rejects
-  expired or unknown probes.
+  registers the Hello send, result logging, and no probe handler; vanilla
+  handles keepalive echoes for both modded and unmodded clients.
 
 ### Packet schema
 
-The five handshake packets use the common Fabric custom-payload codec.
+The three handshake payloads use the common Fabric custom-payload codec.
 Strings use UTF-8, are limited by encoded byte length rather than character
 count, and are decoded strictly. UUIDs use exactly 16 bytes in
 most-significant-byte-first order. Integer fields are big-endian Java `int` or
@@ -129,11 +154,12 @@ most-significant-byte-first order. Integer fields are big-endian Java `int` or
 are rejected where a field is validated. Cache declarations and manifest lists
 are bounded before allocation so a malformed packet cannot force unbounded
 memory use. The complete Hello payload is at most 64 MiB and the cached
-execution-manifest portion at most 32 MiB.
+execution-manifest portion at most 32 MiB. Keepalive probes are vanilla
+`long` IDs, not CoWorld payloads.
 
-Hello and PingEcho malformed-input decoders return an invalid payload after
-draining the input; the server declines those. The other decoders reject
-trailing bytes. Malformed length prefixes are rejected before allocation.
+The Hello malformed-input decoder returns an invalid payload after draining the
+input; the server declines it. The other decoders reject trailing bytes.
+Malformed length prefixes are rejected before allocation.
 
 | Record | Field | Type and bounds | Required validation |
 |---|---|---|---|
@@ -169,22 +195,23 @@ with no terminator or end tag.
 
 | Record | Field | Type and bounds | Required validation |
 |---|---|---|---|
-| PingProbe | probe nonce | Signed 64-bit `long` | Drawn randomly per probe; only the outstanding nonce is accepted and there is no per-connection reuse tracking |
-| PingProbe | probe sequence | Unsigned 8-bit integer, 1-3 | Must match one of the three sequential probe positions |
-| PingEcho | echoed nonce | Signed 64-bit `long` | Must exactly equal the current PingProbe nonce |
-| PingEcho | echoed sequence | Unsigned 8-bit integer, 1-3 | Must exactly equal the current PingProbe sequence |
+| Keepalive probe | ID | Signed 64-bit `long` with the sign bit set | Unique per connection, never a vanilla millisecond challenge; only an ID owned by this listener is consumed |
+| Keepalive probe | sequence | Implicit 1-3 | Follow-up probes are sent only after the previous ID is echoed; a reply for another sequence declines |
 | Accept | protocol version | Signed 32-bit `int` | Must equal the agreed V1 protocol |
 | Accept | requested ownership radius | Signed 32-bit `int`, chunks | `min(client simulation distance, max_ownership_radius)`, non-negative |
 | Accept | sync speed limit | Signed 64-bit `long`, bytes/second | Must be the configured non-negative server value |
 | Accept | session ID | 16-byte UUID | Freshly generated for this accepted connection |
 | Decline | reason enum | Unsigned 8-bit integer | Exact mapping: `offloading disabled=1`, `client opted out=2`, `capacity reached=3`, `ping above the cap=4`, `incompatible versions=5`, `failed negotiation=6` |
 
-The server accepts a PingEcho only when it belongs to the current connection,
-sequence, and nonce. Stale, out-of-order, duplicate, unknown, cross-connection,
-changed, invalid, or late replies do not create a RTT sample; an invalid reply
-declines with `failed negotiation`. The session ID is random 16-byte UUID data
-generated by `SessionManager`; the handshake does not validate an incoming
-session ID.
+The server consumes a keepalive echo only when its ID belongs to the current
+connection's active probe set. Its sequence must match the outstanding probe;
+stale, out-of-order, duplicate, or late replies do not create a RTT sample and
+decline with `failed negotiation`. An unknown ID is left to vanilla, which may
+disconnect the client. All probe IDs leave the active set before Accept, Decline,
+or timeout; they move to a retired set so late or duplicate echoes are still
+canceled, and both sets are cleared on disconnect. The session ID is
+random 16-byte UUID data generated by `SessionManager`; the handshake does not
+validate an incoming session ID.
 
 ### Rejection routing
 
@@ -199,10 +226,10 @@ session ID.
 | Zero disk allowance | Decline, reason `offloading disabled` | Continue normal play |
 | Requested ownership radius is zero | Decline, reason `offloading disabled` | Continue normal play; do not reserve a slot or send Accept |
 | Server offloading capacity unavailable | Decline, reason `capacity reached` | Continue normal play |
-| Missing, invalid, duplicate, out-of-order, changed, or late ping reply | Decline, reason `failed negotiation` | Require all three valid replies; continue normal play |
+| Missing, duplicate, out-of-order, stale, or late keepalive echo from an owned probe | Decline, reason `failed negotiation` | Require all three valid replies; continue normal play |
 | Probe deadline expires without a valid reply | Decline, reason `failed negotiation` | Require all three valid replies; continue normal play |
 | Median RTT above `max_ping` | Decline, reason `ping above the cap` | Continue normal play |
-| Median RTT at or below `max_ping` | Accept | Client logs the session ID; no sync or rejoin follows on this branch |
+| Median RTT at or below `max_ping` | Accept | Client logs the result; no sync or rejoin follows on this branch |
 | Connection ends during Hello or probing | None | Discard state; no ownership or chunk change |
 | Malformed cache declaration | Decline, reason `failed negotiation` | V1 client sends none; no cache validation is performed |
 
@@ -246,9 +273,9 @@ not monitor connection latency, start hand-back, or change ownership.
 The client follows the same connection-local flow from its side:
 
 ```text
-send Hello -> echo probe 1 -> echo probe 2 -> echo probe 3
+send Hello -> vanilla echo of keepalive 1 -> vanilla echo of keepalive 2 -> vanilla echo of keepalive 3
                                   |
-                         Accept -> log session ID
+                         Accept -> log result
                          Decline/timeout -> remain in normal play
 ```
 
@@ -283,7 +310,7 @@ fallback: V1 negotiation alone does not claim offloading readiness.
 Accept contains the agreed protocol, the candidate radius
 `min(client simulation distance, max_ownership_radius)`, the configured sync
 speed limit, and a newly generated session ID. On this branch it carries those
-values only: the client logs the session ID and no sync, ticking, ownership
+values only: the client logs the result and no sync, ticking, ownership
 claim, redstone-set rule, occupancy check, TPS reduction, readiness check, or
 handover commitment follows.
 
@@ -309,6 +336,26 @@ uncommitted session data. No handshake failure can crash or kick the player.
 Ping checks end with Accept: V1 has no post-accept latency counter or
 threshold. Disconnect is the only path that releases a reserved slot.
 
+### Logging
+
+`log_level` in `coworld-server.properties` is `normal` or `debug`, default
+`normal`. Warnings and errors are always shown. Every CoWorld line starts with a
+component tag; handshake lines use `[handshake]`.
+
+At normal, one terminal line is emitted per connection:
+`[handshake] accepted player=<name> radius=<chunks>` or
+`[handshake] declined player=<name> reason=<reason>`. No session ID or timing is
+logged at normal. The client logs `[handshake] accepted` or
+`[handshake] declined reason=<reason>`.
+
+At debug, the server logs Hello validation inputs, probe queued/written/echoed
+timestamps and IDs, queue-to-write delay, RTT and sequence decisions, rejection
+reasons, deadline expiry, final samples/median/cap, and state discard. Late
+echoes consumed after discard and unknown IDs forwarded to vanilla are also
+logged. No secrets or tokens are
+logged at either level; the keepalive ID is a per-connection nonce used to
+diagnose a reply leaking to vanilla.
+
 ### Data flow
 
 ```text
@@ -316,9 +363,9 @@ Client HelloSender
         |
         v
 Common CoWorldPackets <----> Server HandshakeHandler
-        ^                             |
-        |                             +--> PingProber
-ClientNetworkBridge (PingEcho)        |
+                                      |
+                                      +--> PingProber <--> vanilla keepalive mixins
+                                      |                   (Netty write + echo)
                                       +--> SessionManager (session ID + reserved slot count)
                                       |
                          Accept/Decline ---> client logs the result
@@ -374,14 +421,17 @@ ClientNetworkBridge (PingEcho)        |
 
 ## Non-Functional Requirements
 
-* **Compatibility**: The five handshake payload IDs and all field encodings must
-  be defined once in Common Mod. Protocol version mismatch must decline
+* **Compatibility**: The three handshake payload IDs and all field encodings
+  must be defined once in Common Mod. Keepalive probes use vanilla packets and
+  work with modded and unmodded clients. Protocol version mismatch must decline
   offloading rather than attempt downgrade.
 * **Failure isolation**: Invalid packets, timeout, disconnect, and cache
   incompatibility must leave normal Minecraft play and authoritative ownership
   unchanged. Handshake failures must not crash or kick the player.
 * **Timing**: Probe deadlines use real-server ticks. RTT is measured in
-  milliseconds, and the median comparison accepts a value equal to `max_ping`.
+  milliseconds from the Netty write to the Netty echo, independent of TPS, and
+  the median comparison accepts a value equal to `max_ping`. A frozen client
+  window inflates RTT; V1 documents this edge without a workaround.
 * **State safety**: Session IDs are fresh per accepted connection. Pending
   probes and negotiation state must not survive disconnect or be shared between
   players.
@@ -400,12 +450,14 @@ ClientNetworkBridge (PingEcho)        |
   manifest entries, UUID fields, and cached metadata before allocation. Reject
   malformed packets as `failed negotiation` and send no data derived from the
   invalid declaration.
-* **Replay or stale probe packets**: Bind PingEcho to the current connection,
-  sequence, and random nonce. While `PROBING`, `HandshakeHandler` sends
-  `Decline(failed negotiation)` for duplicate, stale-sequence, unknown,
-  changed, invalid, or late echoes; echoes outside `PROBING` are ignored. A
-  session ID is random per accepted connection and is never persisted as a
-  cache key.
+* **Replay or stale probe packets**: Bind each keepalive ID to its connection
+  and sequence. While `PROBING`, `HandshakeHandler` sends
+  `Decline(failed negotiation)` for duplicate, stale-sequence, or late echoes
+  from one of its IDs. Unknown IDs go to vanilla and may disconnect the client;
+  every owned ID leaves the active set before a terminal state and is retired
+  until disconnect so late or duplicate echoes cannot reach vanilla. A session
+  ID is random per accepted connection and is never
+  persisted as a cache key.
 * **Handshake resource exhaustion**: Keep one bounded negotiation state machine
   per connection, start deadlines at login/probe receipt, and discard all state
   on timeout or disconnect. No ownership or cache work is created. No slot is
@@ -446,15 +498,14 @@ ClientNetworkBridge (PingEcho)        |
 
 #### 1. `Common Mod/src/main/java/gladiatorsarius/coworld_common/protocol/CoWorldPackets.java` (Create)
 
-* **Rationale**: Define the shared wire contract for the five Fabric custom
-  handshake payloads: `coworld:hello`, `coworld:ping_probe`,
-  `coworld:ping_echo`, `coworld:accept`, and `coworld:decline`.
+* **Rationale**: Define the shared wire contract for the three Fabric custom
+  handshake payloads: `coworld:hello`, `coworld:accept`, and `coworld:decline`.
+  RTT probes are vanilla keepalives and have no CoWorld codec.
 * **Implemented content**: Record fields, encode/decode behavior, bounded
   integer and string validation, nullable `schema_id` plus schema version,
-  bounded manifest metadata, nonce and sequence fields, Decline reasons, and
-  lenient Hello/PingEcho decoders that return an invalid payload. Stale probe
-  rejection is handled by `PingProber`, not by this codec; PingEcho preserves
-  the probe identity unchanged.
+  bounded manifest metadata, Decline reasons and names, and a lenient Hello
+  decoder that returns an invalid payload. Stale probe rejection is handled by
+  `PingProber`, not by this codec.
 
 #### 2. `Common Mod/src/main/java/gladiatorsarius/coworld_common/protocol/ProtocolVersion.java` (Create or modify)
 
@@ -467,7 +518,7 @@ ClientNetworkBridge (PingEcho)        |
 #### 3. `Common Mod/src/main/java/gladiatorsarius/coworld_common/config/CoWorldDefaults.java` (Create or modify)
 
 * **Rationale**: Centralize handshake defaults with the other shared defaults.
-* **Planned changes**: Define `max_ping = 70`,
+* **Planned changes**: Define `log_level = normal`, `max_ping = 70`,
   `handshake_hello_timeout_ticks = 100`, and
   `ping_probe_timeout_ticks = 100`, plus the existing ownership-radius and
   sync-limit defaults consumed by Accept.
@@ -476,10 +527,20 @@ ClientNetworkBridge (PingEcho)        |
 
 * **Rationale**: Load and validate server settings before the handshake uses
   them.
-* **Planned changes**: Reject invalid negative or noninteger values, expose
-  handshake deadlines and ping cap, and preserve the inclusive `max_ping`
-  comparison and nonnegative radius rules. Read `offload_enabled` before
-  accepting a Hello and decline new offloading when it is false.
+* **Planned changes**: Reject invalid negative or noninteger values and invalid
+  `log_level`, expose handshake deadlines and ping cap, and preserve the
+  inclusive `max_ping` comparison and nonnegative radius rules. Read
+  `offload_enabled` before accepting a Hello and decline new offloading when it
+  is false.
+
+#### 4a. `Server Mod/src/main/java/gladiatorsarius/coworld_server/log/CoWorldLog.java` (Create)
+
+* **Rationale**: Gate debug lines by `log_level` and keep component tags in
+  every CoWorld line.
+* **Implemented content**: Normal terminal handshake results and always-shown
+  warnings/errors are emitted directly; debug lines carry `[handshake]` tags and
+  include probe IDs, timestamps, decisions, and discard reasons. No session ID
+  or other token-like value is logged.
 
 #### 5. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/HandshakeHandler.java` (Create)
 
@@ -495,14 +556,21 @@ ClientNetworkBridge (PingEcho)        |
 
 #### 6. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/PingProber.java` (Create)
 
-* **Rationale**: Isolate the three-probe generation, echo matching, and RTT
-  median calculation. Deadline and ping-cap policy stay in `HandshakeHandler`.
-* **Implemented content**: Sends probes sequentially with random nonces and
-  positions 1-3, matches each accepted echo to the outstanding nonce and
-  sequence, records RTT milliseconds, requires three samples, and calculates
-  the median. `HandshakeHandler` rejects invalid, changed, duplicate, and late
-  echoes, applies the per-probe deadline, and compares the median with
-  `max_ping`.
+* **Rationale**: Isolate the three keepalive probes, write/echo timestamps, echo
+  matching, and RTT median calculation. Deadline and ping-cap policy stay in
+  `HandshakeHandler`.
+* **Implemented content**: Sends `ClientboundKeepAlivePacket`s sequentially with
+  negative random IDs, records the write timestamp on the Netty thread, records
+  echoes from the server network thread, requires three samples, and calculates
+  the median. `HandshakeHandler` rejects stale, duplicate, and late echoes,
+  applies the per-probe deadline, and compares the median with `max_ping`.
+
+#### 6a. `Server Mod/src/main/java/gladiatorsarius/coworld_server/mixin/` (Create)
+
+* **Rationale**: Intercept vanilla keepalive traffic without changing the client.
+* **Implemented content**: `ServerKeepAliveMixin` cancels owned echoes before
+  vanilla can disconnect the player; `ConnectionSendMixin` records the send
+  timestamp at the Netty write. Unknown IDs are never consumed.
 
 #### 7. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java` (Create)
 
@@ -517,9 +585,9 @@ ClientNetworkBridge (PingEcho)        |
 * **Rationale**: Register the server payload handlers and connect handshake
   lifecycle hooks to login, tick, and disconnect. No sync or rejoin service is
   connected on this branch.
-* **Planned changes**: Wire HandshakeHandler, PingProber, SessionManager, and
-  validated configuration without placing packet definitions in the server
-  module.
+* **Planned changes**: Wire HandshakeHandler, PingProber, SessionManager,
+  validated configuration, tagged logging, and the two keepalive mixins without
+  placing packet definitions in the server module.
 
 #### 9. `Client Mod/src/main/java/gladiatorsarius/coworld_client/handshake/HelloSender.java` (Create)
 
@@ -530,28 +598,26 @@ ClientNetworkBridge (PingEcho)        |
   Hello. The overload that accepts a `CacheDeclaration` is unused by the join
   path, so no stable identities, manifest hashes, or format versions are sent.
 
-#### 10. Ping echo in `ClientNetworkBridge.java`
+#### 10. Probe echo in `ClientNetworkBridge.java`
 
-* **Rationale**: Provide the client half of the required probe exchange.
-* **Planned changes**: Register the ping-probe receiver in the bridge and return
-  an unchanged PingEcho for each probe. The server rejects expired or unknown
-  probes.
+* **Rationale**: No client probe handler is needed; vanilla echoes keepalives.
+* **Implemented content**: The bridge no longer registers a custom probe
+  receiver. Modded and vanilla clients both use vanilla keepalive handling.
 
 #### 11. `Client Mod/src/client/java/gladiatorsarius/coworld_client/client/ClientNetworkBridge.java` (Create)
 
 * **Rationale**: Keep Fabric client-only networking calls out of common client
   code and expose the shared payload registration to the client entrypoint.
-* **Implemented content**: Registers PingProbe, Accept, and Decline receivers,
-  sends Hello and echoes through the existing Minecraft connection, and logs
-  Accept or Decline. `CoWorldClient` registers the five payload codecs; no
-  common client handshake state or sync/rejoin orchestrator is driven by those
-  results.
+* **Implemented content**: Registers Accept and Decline receivers, sends Hello,
+  and logs the terminal result without the session UUID. `CoWorldClient`
+  registers the three payload codecs; no common client handshake state or
+  sync/rejoin orchestrator is driven by those results.
 
 #### 12. `Client Mod/src/main/java/gladiatorsarius/coworld_client/CoWorldClient.java` (Modify)
 
 * **Rationale**: Register the shared payload types on the client. The Hello
   flow and result logging live in `ClientNetworkBridge`.
-* **Implemented content**: Registers the five payload codecs only. There are no
+* **Implemented content**: Registers the three payload codecs only. There are no
   cache metadata providers, no accepted-metadata handoff, and no sync or rejoin
   orchestrator on this branch.
 
@@ -559,9 +625,9 @@ ClientNetworkBridge (PingEcho)        |
 
 * **Rationale**: Keep the design contract synchronized with the concrete wire
   identifiers and schema decision.
-* **Planned changes**: Document the five handshake payload IDs, exact packet
-  contents, nullable `schema_id` and integer version matching, client-only
-  Decline logging, and the state and timeout rules.
+* **Planned changes**: Document the three handshake payload IDs, vanilla
+  keepalive probes, exact packet contents, nullable `schema_id` and integer
+  version matching, client-only result logging, and the state and timeout rules.
 
 #### 14. `docs/folder-structure.md` (Modify)
 
@@ -597,10 +663,10 @@ ClientNetworkBridge (PingEcho)        |
 
 #### 20. Probe echo coverage
 
-* **Rationale**: Confirm the client never alters or fabricates probe replies.
-* **Planned changes**: The inlined bridge echo copies nonce and sequence unchanged;
-  unchanged echoes need a manual or in-game check. No separate client responder
-  class or automated test remains.
+* **Rationale**: Confirm vanilla echoes every keepalive ID unchanged.
+* **Implemented content**: Neither endpoint has client probe code; the vanilla
+  client echoes any keepalive ID immediately. Cancel-before-vanilla and
+  unknown-ID forwarding need a manual or in-game check.
 
 #### 21. `Common Mod/gradle.properties` (Modify)
 
@@ -631,19 +697,21 @@ ClientNetworkBridge (PingEcho)        |
 * **Common build**: Run `./gradlew build` inside `Common Mod/`.
 * **Server build**: Run `./gradlew build` inside `Server Mod/`.
 * **Client build**: Run `./gradlew build` inside `Client Mod/`.
-* **Protocol checks**: The five payload IDs and their codecs are registered by
+* **Protocol checks**: The three payload IDs and their codecs are registered by
   both entrypoints; exact V1 matching needs a manual or in-game check. There is
   no round-trip encoding suite.
-* **Behavior checks**: Manually check an echo before Hello, packets after a
-  terminal state, a null schema on both sides, and three echoes reaching
-  Accept. Other failure paths need manual or in-game checks; there is no cache
-  mismatch path on this branch.
+* **Behavior checks**: Manually check an unexpected keepalive before Hello,
+  packets after a terminal state, a null schema on both sides, and three
+  vanilla echoes reaching Accept. Other failure paths need manual or in-game
+  checks; there is no cache mismatch path on this branch.
 * **Timing checks**: The handler requires three probes and the prober computes
-  the median. Median equality/above-cap behavior and both deadlines have no
-  automated test.
-* **Integration check**: Verify that Accept is logged by the client and that an
-  incompatible or absent client continues normal play. There is no sync or
-  rejoin follow-up and no chunk transfer to verify on this branch.
+  the median from network-thread timestamps. Median equality/above-cap
+  behavior, TPS independence, both deadlines, and the frozen-window edge have
+  no automated test.
+* **Integration check**: Verify that the terminal result is logged at normal,
+  that debug logs show queued/written/echoed timings with tagged lines, and
+  that an incompatible or absent client continues normal play. There is no sync
+  or rejoin follow-up and no chunk transfer to verify on this branch.
 
 --------------------------------------------------------------------------------
 

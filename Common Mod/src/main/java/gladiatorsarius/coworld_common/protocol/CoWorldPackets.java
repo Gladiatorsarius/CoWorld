@@ -154,50 +154,6 @@ public final class CoWorldPackets {
 		}
 	}
 
-	public record PingProbe(long nonce, int sequence) implements CustomPacketPayload {
-		public static final Identifier ID = Identifier.fromNamespaceAndPath("coworld", "ping_probe");
-		public static final Type<PingProbe> TYPE = new Type<>(ID);
-		public static final StreamCodec<FriendlyByteBuf, PingProbe> CODEC = StreamCodec.of(
-			(buf, value) -> buf.writeLong(value.nonce).writeByte(value.sequence),
-			buf -> {
-				long nonce = buf.readLong();
-				int sequence = buf.readUnsignedByte();
-				if (sequence < 1 || sequence > 3) throw new IllegalArgumentException("invalid probe sequence");
-				if (buf.isReadable()) throw new IllegalArgumentException("trailing probe bytes");
-				return new PingProbe(nonce, sequence);
-			});
-		public PingProbe {
-			if (sequence < 1 || sequence > 3) throw new IllegalArgumentException("invalid probe sequence");
-		}
-		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
-	}
-
-	public record PingEcho(long nonce, int sequence, boolean valid) implements CustomPacketPayload {
-		public static final Identifier ID = Identifier.fromNamespaceAndPath("coworld", "ping_echo");
-		public static final Type<PingEcho> TYPE = new Type<>(ID);
-		public static final StreamCodec<FriendlyByteBuf, PingEcho> CODEC = StreamCodec.of(
-			(buf, value) -> buf.writeLong(value.nonce).writeByte(value.sequence),
-			buf -> {
-				try {
-					long nonce = buf.readLong();
-					int sequence = buf.readUnsignedByte();
-					if (sequence < 1 || sequence > 3) throw new IllegalArgumentException("invalid echo sequence");
-					if (buf.isReadable()) throw new IllegalArgumentException("trailing echo bytes");
-					return new PingEcho(nonce, sequence);
-				} catch (RuntimeException exception) {
-					if (buf.isReadable()) buf.skipBytes(buf.readableBytes());
-					return new PingEcho(0, 1, false);
-				}
-			});
-		public PingEcho(long nonce, int sequence) {
-			this(nonce, sequence, true);
-		}
-		public PingEcho {
-			if (valid && (sequence < 1 || sequence > 3)) throw new IllegalArgumentException("invalid echo sequence");
-		}
-		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
-	}
-
 	public record Accept(int protocolVersion, int requestedRadius, long syncSpeedLimit, UUID sessionId) implements CustomPacketPayload {
 		public static final Identifier ID = Identifier.fromNamespaceAndPath("coworld", "accept");
 		public static final Type<Accept> TYPE = new Type<>(ID);
@@ -234,6 +190,17 @@ public final class CoWorldPackets {
 			});
 		public Decline {
 			if (reason < 1 || reason > 6) throw new IllegalArgumentException("invalid decline reason");
+		}
+		public String reasonName() {
+			return switch (reason) {
+				case OFFLOADING_DISABLED -> "offloading disabled";
+				case CLIENT_OPTED_OUT -> "client opted out";
+				case CAPACITY_REACHED -> "capacity reached";
+				case PING_ABOVE_CAP -> "ping above the cap";
+				case INCOMPATIBLE_VERSIONS -> "incompatible versions";
+				case FAILED_NEGOTIATION -> "failed negotiation";
+				default -> throw new IllegalStateException("invalid decline reason");
+			};
 		}
 		@Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 	}

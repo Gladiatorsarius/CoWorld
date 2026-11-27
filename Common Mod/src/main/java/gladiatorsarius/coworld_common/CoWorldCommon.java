@@ -17,7 +17,7 @@ public class CoWorldCommon implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		LOGGER.info("CoWorld common protocol loaded");
+		LOGGER.info("[common] CoWorld common protocol loaded");
 	}
 
 	public static Identifier id(String path) {

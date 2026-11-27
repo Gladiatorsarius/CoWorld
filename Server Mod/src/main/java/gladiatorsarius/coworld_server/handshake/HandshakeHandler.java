@@ -6,6 +6,8 @@ import gladiatorsarius.coworld_common.protocol.CoWorldPackets.Hello;
 import gladiatorsarius.coworld_common.protocol.ProtocolVersion;
 import gladiatorsarius.coworld_common.config.CoWorldDefaults;
 import gladiatorsarius.coworld_server.config.CoWorldConfig;
+import gladiatorsarius.coworld_server.log.CoWorldLog;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 
 import java.util.UUID;
 
@@ -20,6 +22,7 @@ public final class HandshakeHandler {
 	private final CoWorldConfig config;
 	private final SessionManager sessions;
 	private final PingProber prober;
+	private final String player;
 	private State state = State.WAITING_FOR_HELLO;
 	private int requestedRadius;
 	private final String releaseVersion;
@@ -32,15 +35,17 @@ public final class HandshakeHandler {
 	private UUID activeSession;
 
 	public HandshakeHandler(CoWorldConfig config, SessionManager sessions,
-							String schemaId, int schemaVersion) {
-		this(config, sessions, CoWorldDefaults.releaseVersion(), schemaId, schemaVersion);
+							ServerGamePacketListenerImpl listener, String schemaId, int schemaVersion) {
+		this(config, sessions, listener, CoWorldDefaults.releaseVersion(), schemaId, schemaVersion);
 	}
 
 	public HandshakeHandler(CoWorldConfig config, SessionManager sessions,
-							String releaseVersion, String schemaId, int schemaVersion) {
+							ServerGamePacketListenerImpl listener, String releaseVersion,
+							String schemaId, int schemaVersion) {
 		this.config = config;
 		this.sessions = sessions;
-		this.prober = new PingProber();
+		this.prober = new PingProber(listener);
+		this.player = listener.player.getGameProfile().name();
 		this.releaseVersion = releaseVersion;
 		this.schemaId = schemaId;
 		this.schemaVersion = schemaVersion;
@@ -67,6 +72,8 @@ public final class HandshakeHandler {
 		}
 		if (state == State.PROBING && pingDeadlineTick >= 0
 			&& currentServerTick >= pingDeadlineTick) {
+			CoWorldLog.debug("[handshake] probe deadline expired player={} sequence={} tick={}",
+				player, prober.expectedSequence(), currentServerTick);
 			state = State.NORMAL_PLAY;
 			prober.discard();
 			return new Decline(Decline.FAILED_NEGOTIATION);
@@ -92,51 +99,54 @@ public final class HandshakeHandler {
 		}
 		requestedRadius = Math.min(hello.simulationDistance(), config.maxOwnershipRadius());
 		if (requestedRadius <= 0) return decline(Decline.OFFLOADING_DISABLED);
+		CoWorldLog.debug("[handshake] hello accepted player={} radius={} schema={}:{} protocol={}",
+			player, requestedRadius, hello.schemaId(), hello.schemaVersion(), hello.protocolVersion());
 		state = State.PROBING;
 		pingDeadlineTick = currentServerTick + config.pingProbeTimeoutTicks();
 		return prober.sendNext();
 	}
 
-	public Object receivePingEcho(gladiatorsarius.coworld_common.protocol.CoWorldPackets.PingEcho echo) {
-		if (state == State.ACCEPTED || state == State.NORMAL_PLAY) {
-			return null;
-		}
-		if (state == State.WAITING_FOR_HELLO) {
-			return null;
-		}
-		if (!echo.valid()) {
+	public Object pollKeepAlive() {
+		if (state != State.PROBING) return null;
+		PingProber.Echo echo = prober.pollEcho();
+		if (echo == null) return null;
+		CoWorldLog.debug("[handshake] probe echoed player={} sequence={} id={} echo_ns={}",
+			player, echo.sequence(), echo.id(), echo.echoedAtNanos());
+		if (echo.sequence() != prober.expectedSequence()) {
+			CoWorldLog.debug("[handshake] probe rejected player={} sequence={} reason=unexpected sequence",
+				player, echo.sequence());
 			return decline(Decline.FAILED_NEGOTIATION);
 		}
-		if (state != State.PROBING) {
-			return decline(Decline.FAILED_NEGOTIATION);
-		}
-		if (pingDeadlineTick >= 0 && currentServerTick >= pingDeadlineTick) {
-			prober.discard();
-			return decline(Decline.FAILED_NEGOTIATION);
-		}
-		if (!prober.accept(echo)) {
+		if (prober.accept(echo) < 0) {
 			return decline(Decline.FAILED_NEGOTIATION);
 		}
 		if (!prober.complete()) {
 			pingDeadlineTick = currentServerTick + config.pingProbeTimeoutTicks();
 			return prober.sendNext();
 		}
-		if (prober.medianRttMillis() > config.maxPing()) {
+		long median = prober.medianRttMillis();
+		CoWorldLog.debug("[handshake] decision player={} samples_ms={} median_ms={} max_ping_ms={} result={}",
+			player, prober.rttSamples(), median, config.maxPing(), median > config.maxPing() ? "decline" : "accept");
+		if (median > config.maxPing()) {
 			return decline(Decline.PING_ABOVE_CAP);
 		}
 		UUID sessionId = sessions.acceptSession();
-		if (sessionId == null) return decline(Decline.CAPACITY_REACHED);
+		if (sessionId == null) {
+			return decline(Decline.CAPACITY_REACHED);
+		}
 		sessionAccepted = true;
 		activeSession = sessionId;
 		state = State.ACCEPTED;
-		return new Accept(ProtocolVersion.V1, requestedRadius(), config.syncSpeedLimit(), sessionId);
+		prober.discard();
+		return new Accept(ProtocolVersion.V1, requestedRadius, config.syncSpeedLimit(), sessionId);
 	}
 
 	public void disconnect() {
+		CoWorldLog.debug("[handshake] discarded player={} reason=disconnect", player);
 		if (sessionAccepted) sessions.releaseCapacity();
 		sessionAccepted = false;
 		activeSession = null;
-		prober.discard();
+		prober.close();
 		state = State.NORMAL_PLAY;
 	}
 
@@ -145,11 +155,10 @@ public final class HandshakeHandler {
 	}
 
 	private Decline decline(int reason) {
+		Decline decline = new Decline(reason);
+		CoWorldLog.debug("[handshake] decline player={} reason={}", player, decline.reasonName());
 		state = State.NORMAL_PLAY;
-		return new Decline(reason);
-	}
-
-	private int requestedRadius() {
-		return requestedRadius;
+		prober.discard();
+		return decline;
 	}
 }
