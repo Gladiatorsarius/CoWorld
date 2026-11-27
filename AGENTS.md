@@ -18,8 +18,7 @@ CoWorld ("Client-Offloaded World") is a single Fabric mod for Minecraft 26.3. It
 - If your implementation has to differ from a doc, stop and ask the developer whether that is okay. If approved, update the doc in the same change. Code and docs must never drift apart.
 
 ## Build and test
-- Java 25. Build with `./gradlew build` inside `CoWorld/` only do this when ask never do it for testing.
-- One Gradle setup; no composite build and no jar-in-jar.
+- Java 25. Build with `./gradlew build` inside `CoWorld/`.
 - Every feature must be tested before it counts as done.
 - Ad-hoc tests you write while developing are deleted again before committing. Do not commit them; they must not pile up.
 
