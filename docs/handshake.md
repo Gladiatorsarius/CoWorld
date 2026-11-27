@@ -8,7 +8,7 @@ Immediately after normal login, negotiate CoWorld over custom packets on the exi
 
 The concrete V1 handshake payload IDs are `coworld:hello`, `coworld:accept`, and
 `coworld:decline`. Their encodings and bounds are implemented once in
-`CoWorldPackets` in Common Mod. RTT probes use vanilla keepalive packets instead
+`CoWorldPackets` in the common package. RTT probes use vanilla keepalive packets instead
 of a CoWorld payload, so no client-mod probe handler is needed.
 
 1. The client sends Hello: CoWorld version, protocol version, offloading preference, disk allowance, client simulation distance, and the live snapshot schema identity/version. The shared codec also defines a cache declaration, but the client sends no cache declaration on this branch; `HelloSender.build(settings, cache)` accepts one, yet the join path always uses the overload that passes `null`.

@@ -83,8 +83,8 @@ flow must keep cache claims and ownership decisions separate from the handshake.
 
 ## Technical Plan (Architecture)
 
-The wire format belongs in Common Mod so the client and server cannot define
-different packet fields or encodings. The server owns negotiation policy,
+The wire format belongs in the common package so the client and server cannot
+define different packet fields or encodings. The server owns negotiation policy,
 timeouts, and all probe timing. The client builds the Hello; vanilla Minecraft
 echoes keepalive IDs immediately, so no client-mod probe handler is needed.
 Session tracking remains server-side because only the real server can authorize
@@ -113,34 +113,34 @@ it.
 
 ### Packet and component responsibilities
 
-* `Common Mod/src/main/java/gladiatorsarius/coworld_common/protocol/CoWorldPackets.java`
+* `CoWorld/src/main/java/gladiatorsarius/coworld/common/protocol/CoWorldPackets.java`
   defines three handshake records—Hello, Accept, and Decline—and their codecs.
   Fabric custom payload IDs are `coworld:hello`, `coworld:accept`, and
   `coworld:decline`. The class also defines field validation boundaries shared
   by both endpoints.
-* `Common Mod/src/main/java/gladiatorsarius/coworld_common/protocol/ProtocolVersion.java`
+* `CoWorld/src/main/java/gladiatorsarius/coworld/common/protocol/ProtocolVersion.java`
   identifies the exact wire format. A live connection is accepted only when
   the supported CoWorld and protocol versions match the server's policy.
-* `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/HandshakeHandler.java`
+* `CoWorld/src/main/java/gladiatorsarius/coworld/server/handshake/HandshakeHandler.java`
   owns the per-connection state machine, Hello deadline, version and field
   checks, and Accept/Decline construction. It drains probe results on the
   server tick. It does not transition into sync or rejoin.
-* `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/PingProber.java`
+* `CoWorld/src/main/java/gladiatorsarius/coworld/server/handshake/PingProber.java`
   sends three sequential vanilla keepalive probes, records network-thread echo
   timestamps, matches each reply to its sequence and connection, records RTT
   milliseconds, and calculates the median RTT. `HandshakeHandler` applies the
   per-probe deadline and the inclusive `max_ping` comparison.
-* `Server Mod/src/main/java/gladiatorsarius/coworld_server/mixin/`
+* `CoWorld/src/main/java/gladiatorsarius/coworld/server/mixin/`
   contains the network-thread interceptors for serverbound keepalive echoes and
   clientbound keepalive writes. Mismatched replies are never consumed.
-* `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java`
+* `CoWorld/src/main/java/gladiatorsarius/coworld/server/handshake/SessionManager.java`
   creates fresh session IDs after acceptance, atomically reserves a slot before
   Accept, and releases reserved capacity when a session ends.
-* `Client Mod/src/main/java/gladiatorsarius/coworld_client/handshake/HelloSender.java`
+* `CoWorld/src/main/java/gladiatorsarius/coworld/client/handshake/HelloSender.java`
   builds Hello from client settings, simulation distance, versions, and the
   live schema constants. Its `build(settings, cache)` overload can carry a
   `CacheDeclaration`, but the join path never supplies one.
-* `Client Mod/src/client/java/gladiatorsarius/coworld_client/client/ClientNetworkBridge.java`
+* `CoWorld/src/client/java/gladiatorsarius/coworld/client/ClientNetworkBridge.java`
   registers the Hello send, result logging, and no probe handler; vanilla
   handles keepalive echoes for both modded and unmodded clients.
 
@@ -395,7 +395,7 @@ Common CoWorldPackets <----> Server HandshakeHandler
 
 *   **Pros**: The server could require every client to identify CoWorld before
     login completes.
-*   **Cons**: Players without the client mod, players who opt out, and clients
+*   **Cons**: Players without the client side, players who opt out, and clients
     with failed negotiation would be kicked or denied normal play.
 *   **Reason for Rejection**: Rejected in the design: CoWorld is an optional
     offloading path and must not change the server's other mod requirements or
@@ -422,8 +422,8 @@ Common CoWorldPackets <----> Server HandshakeHandler
 ## Non-Functional Requirements
 
 * **Compatibility**: The three handshake payload IDs and all field encodings
-  must be defined once in Common Mod. Keepalive probes use vanilla packets and
-  work with modded and unmodded clients. Protocol version mismatch must decline
+  must be defined once in the common package. Keepalive probes use vanilla packets
+  and work with modded and unmodded clients. Protocol version mismatch must decline
   offloading rather than attempt downgrade.
 * **Failure isolation**: Invalid packets, timeout, disconnect, and cache
   incompatibility must leave normal Minecraft play and authoritative ownership
@@ -496,7 +496,7 @@ Common CoWorldPackets <----> Server HandshakeHandler
 
 ### Single implementation list
 
-#### 1. `Common Mod/src/main/java/gladiatorsarius/coworld_common/protocol/CoWorldPackets.java` (Create)
+#### 1. `CoWorld/src/main/java/gladiatorsarius/coworld/common/protocol/CoWorldPackets.java` (Create)
 
 * **Rationale**: Define the shared wire contract for the three Fabric custom
   handshake payloads: `coworld:hello`, `coworld:accept`, and `coworld:decline`.
@@ -507,15 +507,15 @@ Common CoWorldPackets <----> Server HandshakeHandler
   decoder that returns an invalid payload. Stale probe rejection is handled by
   `PingProber`, not by this codec.
 
-#### 2. `Common Mod/src/main/java/gladiatorsarius/coworld_common/protocol/ProtocolVersion.java` (Create or modify)
+#### 2. `CoWorld/src/main/java/gladiatorsarius/coworld/common/protocol/ProtocolVersion.java` (Create or modify)
 
-* **Rationale**: Keep the exact wire-format identifier in the shared module.
+* **Rationale**: Keep the exact wire-format identifier in the shared package.
 * **Implemented content**: Exposes the V1 value and exact-match compatibility
   check used by both endpoints, plus the `V1_SCHEMA_ID` / `V1_SCHEMA_VERSION`
   constants sent in Hello. There is no downgrade or lowest-common-version
   selection.
 
-#### 3. `Common Mod/src/main/java/gladiatorsarius/coworld_common/config/CoWorldDefaults.java` (Create or modify)
+#### 3. `CoWorld/src/main/java/gladiatorsarius/coworld/common/config/CoWorldDefaults.java` (Create or modify)
 
 * **Rationale**: Centralize handshake defaults with the other shared defaults.
 * **Planned changes**: Define `log_level = normal`, `max_ping = 70`,
@@ -523,7 +523,7 @@ Common CoWorldPackets <----> Server HandshakeHandler
   `ping_probe_timeout_ticks = 100`, plus the existing ownership-radius and
   sync-limit defaults consumed by Accept.
 
-#### 4. `Server Mod/src/main/java/gladiatorsarius/coworld_server/config/CoWorldConfig.java` (Create or modify)
+#### 4. `CoWorld/src/main/java/gladiatorsarius/coworld/server/config/CoWorldConfig.java` (Create or modify)
 
 * **Rationale**: Load and validate server settings before the handshake uses
   them.
@@ -533,7 +533,7 @@ Common CoWorldPackets <----> Server HandshakeHandler
   `offload_enabled` before accepting a Hello and decline new offloading when it
   is false.
 
-#### 4a. `Server Mod/src/main/java/gladiatorsarius/coworld_server/log/CoWorldLog.java` (Create)
+#### 4a. `CoWorld/src/main/java/gladiatorsarius/coworld/server/log/CoWorldLog.java` (Create)
 
 * **Rationale**: Gate debug lines by `log_level` and keep component tags in
   every CoWorld line.
@@ -542,7 +542,7 @@ Common CoWorldPackets <----> Server HandshakeHandler
   include probe IDs, timestamps, decisions, and discard reasons. No session ID
   or other token-like value is logged.
 
-#### 5. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/HandshakeHandler.java` (Create)
+#### 5. `CoWorld/src/main/java/gladiatorsarius/coworld/server/handshake/HandshakeHandler.java` (Create)
 
 * **Rationale**: Own the server-side connection state machine and decision
   boundary.
@@ -554,7 +554,7 @@ Common CoWorldPackets <----> Server HandshakeHandler
   routing after Accept. Missing Hello becomes normal play without a Decline; an
   expired probe deadline sends `Decline(failed negotiation)`.
 
-#### 6. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/PingProber.java` (Create)
+#### 6. `CoWorld/src/main/java/gladiatorsarius/coworld/server/handshake/PingProber.java` (Create)
 
 * **Rationale**: Isolate the three keepalive probes, write/echo timestamps, echo
   matching, and RTT median calculation. Deadline and ping-cap policy stay in
@@ -565,14 +565,14 @@ Common CoWorldPackets <----> Server HandshakeHandler
   the median. `HandshakeHandler` rejects stale, duplicate, and late echoes,
   applies the per-probe deadline, and compares the median with `max_ping`.
 
-#### 6a. `Server Mod/src/main/java/gladiatorsarius/coworld_server/mixin/` (Create)
+#### 6a. `CoWorld/src/main/java/gladiatorsarius/coworld/server/mixin/` (Create)
 
 * **Rationale**: Intercept vanilla keepalive traffic without changing the client.
 * **Implemented content**: `ServerKeepAliveMixin` cancels owned echoes before
   vanilla can disconnect the player; `ConnectionSendMixin` records the send
   timestamp at the Netty write. Unknown IDs are never consumed.
 
-#### 7. `Server Mod/src/main/java/gladiatorsarius/coworld_server/handshake/SessionManager.java` (Create)
+#### 7. `CoWorld/src/main/java/gladiatorsarius/coworld/server/handshake/SessionManager.java` (Create)
 
 * **Rationale**: Own accepted session identity and reserved capacity.
 * **Implemented content**: Generates a fresh session ID per accepted connection
@@ -580,16 +580,17 @@ Common CoWorldPackets <----> Server HandshakeHandler
   released on disconnect. There is no sub-server, bootstrap failure path,
   post-accept ping monitoring, or hand-back behavior.
 
-#### 8. `Server Mod/src/main/java/gladiatorsarius/coworld_server/CoWorldServer.java` (Modify)
+#### 8. `CoWorld/src/main/java/gladiatorsarius/coworld/server/CoWorldServer.java` (Modify)
 
-* **Rationale**: Register the server payload handlers and connect handshake
-  lifecycle hooks to login, tick, and disconnect. No sync or rejoin service is
-  connected on this branch.
+* **Rationale**: Register the server-side handshake handlers and connect
+  lifecycle hooks to login, tick, and disconnect. As the `server` entrypoint, it
+  runs only on a dedicated server. No sync or rejoin service is connected on this
+  branch.
 * **Planned changes**: Wire HandshakeHandler, PingProber, SessionManager,
   validated configuration, tagged logging, and the two keepalive mixins without
-  placing packet definitions in the server module.
+  placing packet definitions in the server package.
 
-#### 9. `Client Mod/src/main/java/gladiatorsarius/coworld_client/handshake/HelloSender.java` (Create)
+#### 9. `CoWorld/src/main/java/gladiatorsarius/coworld/client/handshake/HelloSender.java` (Create)
 
 * **Rationale**: Build the client declaration from settings and current client
   state.
@@ -604,20 +605,19 @@ Common CoWorldPackets <----> Server HandshakeHandler
 * **Implemented content**: The bridge no longer registers a custom probe
   receiver. Modded and vanilla clients both use vanilla keepalive handling.
 
-#### 11. `Client Mod/src/client/java/gladiatorsarius/coworld_client/client/ClientNetworkBridge.java` (Create)
+#### 11. `CoWorld/src/client/java/gladiatorsarius/coworld/client/ClientNetworkBridge.java` (Create)
 
-* **Rationale**: Keep Fabric client-only networking calls out of common client
-  code and expose the shared payload registration to the client entrypoint.
+* **Rationale**: Keep Fabric client-only networking calls out of `src/main`
+  code; the shared payload registration lives in `CoWorldCommon`.
 * **Implemented content**: Registers Accept and Decline receivers, sends Hello,
-  and logs the terminal result without the session UUID. `CoWorldClient`
-  registers the three payload codecs; no common client handshake state or
-  sync/rejoin orchestrator is driven by those results.
+  and logs the terminal result without the session UUID. No common client
+  handshake state or sync/rejoin orchestrator is driven by those results.
 
-#### 12. `Client Mod/src/main/java/gladiatorsarius/coworld_client/CoWorldClient.java` (Modify)
+#### 12. `CoWorld/src/main/java/gladiatorsarius/coworld/common/CoWorldCommon.java` (Modify)
 
-* **Rationale**: Register the shared payload types on the client. The Hello
-  flow and result logging live in `ClientNetworkBridge`.
-* **Implemented content**: Registers the three payload codecs only. There are no
+* **Rationale**: Register the shared payload types once for both endpoints in
+  the single `main` entrypoint.
+* **Implemented content**: Registers the three payload codecs. There are no
   cache metadata providers, no accepted-metadata handoff, and no sync or rejoin
   orchestrator on this branch.
 
@@ -635,28 +635,28 @@ Common CoWorldPackets <----> Server HandshakeHandler
 * **Planned changes**: Replace planned placeholders with the finalized
   handshake file list and note the client-only network bridge boundary.
 
-#### 15. `Common Mod/src/test/java/gladiatorsarius/coworld_common/protocol/CoWorldPacketsTest.java` (Not present)
+#### 15. `CoWorld/src/test/java/gladiatorsarius/coworld/common/protocol/CoWorldPacketsTest.java` (Not present)
 
 * **Status**: Removed with the rest of the JUnit test code. Wire validation is
   checked by manual or in-game verification only.
 
-#### 16. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/HandshakeHandlerTest.java` (Not present)
+#### 16. `CoWorld/src/test/java/gladiatorsarius/coworld/server/handshake/HandshakeHandlerTest.java` (Not present)
 
 * **Status**: Removed with the rest of the JUnit test code. Handshake state
   transitions are checked by manual or in-game verification only.
 
-#### 17. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/PingProberTest.java` (Not present)
+#### 17. `CoWorld/src/test/java/gladiatorsarius/coworld/server/handshake/PingProberTest.java` (Not present)
 
 * **Status**: No dedicated prober test. The three sequential probes, unchanged
   echoes, median equality/above-cap behavior, and deadline expiry have no
   automated test.
 
-#### 18. `Server Mod/src/test/java/gladiatorsarius/coworld_server/handshake/SessionManagerTest.java` (Not present)
+#### 18. `CoWorld/src/test/java/gladiatorsarius/coworld/server/handshake/SessionManagerTest.java` (Not present)
 
 * **Status**: No dedicated session test. Session ID generation, slot
   reservation, and slot release have no automated test.
 
-#### 19. `Client Mod/src/test/java/gladiatorsarius/coworld_client/handshake/HelloSenderTest.java` (Not present)
+#### 19. `CoWorld/src/test/java/gladiatorsarius/coworld/client/handshake/HelloSenderTest.java` (Not present)
 
 * **Status**: No HelloSender or client-settings test. Client behavior is
   checked by manual or in-game verification only.
@@ -668,38 +668,20 @@ Common CoWorldPackets <----> Server HandshakeHandler
   client echoes any keepalive ID immediately. Cancel-before-vanilla and
   unknown-ID forwarding need a manual or in-game check.
 
-#### 21. `Common Mod/gradle.properties` (Modify)
+#### 21. `CoWorld/gradle.properties` (Modify)
 
-* **Rationale**: Keep the common wire contract release version aligned with the
-  feature.
-* **Planned changes**: Bump the Common Mod version according to the repository's
-  feature-versioning rule.
-
-#### 22. `Server Mod/gradle.properties` (Modify)
-
-* **Rationale**: Publish the server handshake implementation with a matching
-  feature version.
-* **Planned changes**: Bump the Server Mod version according to the repository's
-  feature-versioning rule.
-
-#### 23. `Client Mod/gradle.properties` (Modify)
-
-* **Rationale**: Publish the client handshake implementation with a matching
-  feature version.
-* **Planned changes**: Bump the Client Mod version according to the repository's
-  feature-versioning rule.
+* **Rationale**: Publish the single jar with one release version for all roles.
+* **Implemented content**: `version=2.0.0`; no per-mod versions remain.
 
 ### Verification Plan
 
-* **Test policy**: No JUnit test code is retained in any mod. Verification is
-  manual or in-game only; no source-compiled harness replaces it.
+* **Test policy**: No JUnit test code is retained. Verification is manual or
+  in-game only; no source-compiled harness replaces it.
 
-* **Common build**: Run `./gradlew build` inside `Common Mod/`.
-* **Server build**: Run `./gradlew build` inside `Server Mod/`.
-* **Client build**: Run `./gradlew build` inside `Client Mod/`.
-* **Protocol checks**: The three payload IDs and their codecs are registered by
-  both entrypoints; exact V1 matching needs a manual or in-game check. There is
-  no round-trip encoding suite.
+* **Build**: Run `./gradlew build` inside `CoWorld/`.
+* **Protocol checks**: The three payload IDs and their codecs are registered once
+  by the common entrypoint for both sides; exact V1 matching needs a manual or
+  in-game check. There is no round-trip encoding suite.
 * **Behavior checks**: Manually check an unexpected keepalive before Hello,
   packets after a terminal state, a null schema on both sides, and three
   vanilla echoes reaching Accept. Other failure paths need manual or in-game

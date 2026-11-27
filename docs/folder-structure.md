@@ -1,16 +1,16 @@
 # Folder structure
 
-The repository contains three standalone Fabric mod projects side by side, next to the design docs: `Client Mod/`, `Server Mod/`, and `Common Mod/`. Each is a complete, independently buildable Fabric mod for Minecraft 26.3, generated with the [Fabric template generator](https://fabricmc.net/develop/template/). There is no root Gradle build. Build any project with its own wrapper: `./gradlew build` inside its folder. Client Mod and Server Mod reference Common Mod through a Gradle composite build (`includeBuild('../Common Mod')` in `settings.gradle`) and bundle its jar with Loom jar-in-jar, so the common code always matches the mod that ships it.
+The repository contains one Fabric mod project, `CoWorld/`, next to the design docs. It is a complete, independently buildable Fabric mod for Minecraft 26.3, generated with the [Fabric template generator](https://fabricmc.net/develop/template/). Build it with its own wrapper: `./gradlew build` inside `CoWorld/`. One jar ships all three roles; Loom's `splitEnvironmentSourceSets()` separates `src/main` (no Minecraft client classes) from `src/client` (client-only classes).
 
-Common Mod holds the shared language the two endpoints must agree on byte for byte: the wire protocol, the canonical chunk hash, the execution-manifest format, shared identity/version types, and the configuration defaults. Shared behavior stays in the mod that performs it. Client Mod and Server Mod both split sources with `src/main` (no Minecraft client classes) and `src/client` (client-only classes); Common Mod and Server Mod use only `src/main`.
+The `common` package holds the shared language both endpoints must agree on byte for byte: the wire protocol, the canonical chunk hash, the execution-manifest format, shared identity/version types, and the configuration defaults. Shared behavior stays in the package that performs it. `server` holds real-server logic; `client` holds player-side logic, and only genuinely client-only classes go into `src/client`.
 
-## Common Mod
+## Common package
 
-`Common Mod/src/main/java/gladiatorsarius/coworld_common/`, environment `*`, loaded on both endpoints.
+`CoWorld/src/main/java/gladiatorsarius/coworld/common/`, loaded on both endpoints. `CoWorldCommon` is the single `main` entrypoint and registers the three handshake payload codecs once for both sides.
 
 ```
-coworld_common/
-├── CoWorldCommon.java                  # mod entrypoint
+common/
+├── CoWorldCommon.java                  # mod entrypoint, shared payload registration
 ├── protocol/                           # wire format, one definition for both sides
 │   ├── CoWorldPackets.java             # every packet: handshake, sync, deltas, handover, claims
 │   └── ProtocolVersion.java            # wire-format version, must match (handshake.md)
@@ -36,13 +36,13 @@ coworld_common/
     └── BandSummary.java                # two-column border-band summary record + codec
 ```
 
-## Server Mod
+## Server package
 
-`Server Mod/src/main/java/gladiatorsarius/coworld_server/`, environment `server`. Its `src/client` sourceset stays empty.
+`CoWorld/src/main/java/gladiatorsarius/coworld/server/`. `CoWorldServer` is the `server` entrypoint, so it runs only on a dedicated server.
 
 ```
-coworld_server/
-├── CoWorldServer.java                  # mod entrypoint, wires everything
+server/
+├── CoWorldServer.java                  # server entrypoint, wires everything
 ├── config/                             # configs.md
 │   ├── CoWorldConfig.java              # loads and validates all server settings
 │   └── SyncTokenBucket.java            # per-client sync_speed_limit token bucket
@@ -104,16 +104,14 @@ coworld_server/
     └── ClaimArbiter.java               # first-come-first-served, nearer-player tiebreak
 ```
 
-`Server Mod/src/main/resources/coworld_server.mixins.json` registers the two
-server mixins, and `fabric.mod.json` lists that config.
+`CoWorld/src/main/resources/coworld.mixins.json` registers the two server keepalive mixins. The mod's one `fabric.mod.json` lists it with `"environment": "server"`.
 
-## Client Mod
+## Client package
 
-`Client Mod/src/main/java/gladiatorsarius/coworld_client/` (common sources, no client-only classes) and `Client Mod/src/client/java/gladiatorsarius/coworld_client/client/` (client-only). Environment `client`.
+`CoWorld/src/main/java/gladiatorsarius/coworld/client/` (src/main sources, no client-only classes) and `CoWorld/src/client/java/gladiatorsarius/coworld/client/` (client-only). The `client` entrypoint runs only on the client.
 
 ```
-coworld_client/                         # src/main
-├── CoWorldClient.java                  # common entrypoint
+client/                                 # src/main
 ├── config/
 │   └── ClientSettings.java             # loads disk allowance and offloading preference
 ├── handshake/                          # handshake.md
@@ -152,7 +150,7 @@ coworld_client/                         # src/main
 └── redstone/                           # redstone.md
     └── BandSummaryProducer.java        # produces band summaries from owned chunks
 
-coworld_client/client/                  # src/client
+client/                                 # src/client
 ├── CoWorldClientClient.java            # client entrypoint
 ├── ClientNetworkBridge.java            # client networking to the shared protocol
 └── ShutdownProgressOverlay.java        # keeps the game open until hand-back confirms
@@ -160,7 +158,8 @@ coworld_client/client/                  # src/client
 
 ## Notes
 
-- `protocol/` and `hash/` exist only in Common Mod. Client Mod and Server Mod import them, so packet formats and the canonical chunk hash cannot drift apart.
-- The sub-server lives in Client Mod's `src/main`: it runs a dedicated-server environment inside the client process and must not touch client-only classes. Only the thin `ClientNetworkBridge` sits in `src/client`, because Fabric's client networking API is client-only.
-- Each mod folder carries the template's own `README.md`, `LICENSE` (CC0), `.gitignore`, and `.gitattributes`, local to that project.
-- The builds need JDK 25 (`./gradlew build` in any of the three folders). Template placeholders (description, authors, contact links) are unchanged from the generator.
+- `protocol/` and `hash/` exist only in the common package. The server and client packages import them, so packet formats and the canonical chunk hash cannot drift apart.
+- The sub-server lives in the client package's `src/main`: it runs a dedicated-server environment inside the client process and must not touch client-only classes. Only the thin `ClientNetworkBridge` sits in `src/client`, because Fabric's client networking API is client-only.
+- One `fabric.mod.json` with environment `*` declares three entrypoints: `main` (`CoWorldCommon`), `server` (`CoWorldServer`) and `client` (`CoWorldClientClient`). One mixin config holds the server keepalive mixins.
+- `CoWorld/` carries the template's own `README.md`, `LICENSE` (CC0), `.gitignore`, and `.gitattributes`, local to the project.
+- The build needs JDK 25 (`./gradlew build` in `CoWorld/`). Template placeholders (description, authors, contact links) are unchanged from the generator.
