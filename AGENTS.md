@@ -37,3 +37,12 @@ Before calling a change done:
 
 ## Versioning
 - Each mod's version lives in its `gradle.properties`. Bump it with every change: feature -> minor, fix -> patch, breaking change -> major.
+
+## Logging
+
+- Follow logging.md.
+- For every feature, first write a short logging plan: what to log at debug and what to log at normal. Then ask the user for feedback before implementing it.
+- At debug, plan to log as much as possible.
+- At normal, plan to log as little as possible, only the most important events. Do not assume. If unsure, always ask the user.
+- Keep loggingmessages.md up to date. Add every new log message in the same change.
+- Never log secrets or tokens.
