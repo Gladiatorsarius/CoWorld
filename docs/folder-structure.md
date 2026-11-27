@@ -47,9 +47,14 @@ coworld_server/
 │   ├── CoWorldConfig.java              # loads and validates all server settings
 │   └── SyncTokenBucket.java            # per-client sync_speed_limit token bucket
 ├── handshake/                          # handshake.md
-│   ├── HandshakeHandler.java           # Hello/Accept/Decline exchange and timeouts
-│   ├── PingProber.java                 # three probes, median RTT against max_ping
-│   └── SessionManager.java             # accepted session IDs, high-ping tracking
+│   ├── HandshakeHandler.java           # Hello/Accept/Decline exchange, timeouts, probe drain
+│   ├── PingProber.java                 # three vanilla keepalive probes, network-thread RTT, median
+│   └── SessionManager.java             # accepted session IDs, planned high-ping tracking
+├── log/                                # configs.md log_level
+│   └── CoWorldLog.java                 # tagged normal/debug logging gate
+├── mixin/                              # network-thread keepalive interception
+│   ├── ConnectionSendMixin.java        # records send time at the Netty write
+│   └── ServerKeepAliveMixin.java       # consumes owned echoes, forwards other IDs to vanilla
 ├── sync/                               # sync.md
 │   ├── ServerWorldIdentity.java        # creates and persists server/world UUIDs
 │   ├── ExecutionManifestBuilder.java   # hashed manifests of versions/libraries/mods/config
@@ -99,6 +104,9 @@ coworld_server/
     └── ClaimArbiter.java               # first-come-first-served, nearer-player tiebreak
 ```
 
+`Server Mod/src/main/resources/coworld_server.mixins.json` registers the two
+server mixins, and `fabric.mod.json` lists that config.
+
 ## Client Mod
 
 `Client Mod/src/main/java/gladiatorsarius/coworld_client/` (common sources, no client-only classes) and `Client Mod/src/client/java/gladiatorsarius/coworld_client/client/` (client-only). Environment `client`.
@@ -107,10 +115,9 @@ coworld_server/
 coworld_client/                         # src/main
 ├── CoWorldClient.java                  # common entrypoint
 ├── config/
-│   └── ClientSettings.java             # disk allowance, offloading preference
+│   └── ClientSettings.java             # loads disk allowance and offloading preference
 ├── handshake/                          # handshake.md
-│   ├── HelloSender.java                # builds Hello with versions, allowance, cache metadata
-│   └── PingEchoResponder.java          # echoes the three probes unchanged
+│   └── HelloSender.java                # builds Hello with versions, allowance, cache metadata
 ├── cache/                              # sync.md storage/identity, rejoin.md
 │   ├── CacheDirectoryManager.java      # per server/world UUID cache dirs, pins
 │   ├── ManifestValidator.java          # revalidates cached files against manifest hashes
@@ -156,4 +163,4 @@ coworld_client/client/                  # src/client
 - `protocol/` and `hash/` exist only in Common Mod. Client Mod and Server Mod import them, so packet formats and the canonical chunk hash cannot drift apart.
 - The sub-server lives in Client Mod's `src/main`: it runs a dedicated-server environment inside the client process and must not touch client-only classes. Only the thin `ClientNetworkBridge` sits in `src/client`, because Fabric's client networking API is client-only.
 - Each mod folder carries the template's own `README.md`, `LICENSE` (CC0), `.gitignore`, and `.gitattributes`, local to that project.
-- The builds are untested: they need JDK 25 (`./gradlew build` in any of the three folders). Template placeholders (description, authors, contact links) are unchanged from the generator.
+- The builds need JDK 25 (`./gradlew build` in any of the three folders). Template placeholders (description, authors, contact links) are unchanged from the generator.

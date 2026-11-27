@@ -3,7 +3,8 @@
 	"package": "gladiatorsarius.coworld_server.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
-		"ExampleMixin"
+		"ConnectionSendMixin",
+		"ServerKeepAliveMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

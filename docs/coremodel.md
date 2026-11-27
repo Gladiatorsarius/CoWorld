@@ -24,7 +24,7 @@ Every chunk has exactly one authoritative owner. Only that owner's results modif
 
 ### Simulation distance update
 
-Fabric custom payload ID: `coworld:simulation_distance_update`. It is a post-Accept payload, separate from the five handshake records (Hello, PingProbe, PingEcho, Accept, Decline). It is a bounded, session-bound follow-up, not an ownership-grant packet.
+Fabric custom payload ID: `coworld:simulation_distance_update`. It is a post-Accept payload, separate from the three handshake payloads (Hello, Accept, Decline) and the vanilla keepalive RTT probes. It is a bounded, session-bound follow-up, not an ownership-grant packet.
 
 Fields:
 
@@ -40,7 +40,7 @@ Server validation: reject stale or out-of-order sequences, and ignore other or m
 
 Risks and mitigations: bind every update to the active session ID, enforce the monotonic sequence, and ignore bad updates without changing ownership.
 
-Implementation: `SessionManager` validates each update against the active session and the monotonic sequence, then recomputes the radius through the normal handover rules. `HelloSender` adds a post-Accept sender. Tests: `CoWorldPacketsTest` covers round-trip of the five records plus the separate update, the payload ID, malformed and out-of-range fields, and session/sequence validation. `SessionManagerTest` covers distance-update validation and requested-radius recalculation.
+Implementation: `SessionManager` validates each update against the active session and the monotonic sequence, then recomputes the radius through the normal handover rules. `HelloSender` adds a post-Accept sender. This behavior needs manual or in-game verification; no automated test code is retained.
 
 Use `floor(x/16)` and `floor(z/16)` for position-to-chunk membership, including negative coordinates. A chunk includes its lower boundary and excludes its upper one. Entity/player position, not bounding-box overlap, determines membership. Non-player riding/leash groups are the explicit entity-authority exception: all members follow their deterministic lead's position chunk, even when trailing members occupy other chunks. This does not move those chunks' block ownership. Players keep their own position-based authority. See [entity groups](entity-handover.md#related-entities-and-block-references).
 

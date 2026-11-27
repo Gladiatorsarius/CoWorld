@@ -22,13 +22,6 @@
 			"gladiatorsarius.coworld_client.client.CoWorldClientClient"
 		]
 	},
-	"mixins": [
-		"coworld_client.mixins.json",
-		{
-			"config": "coworld_client.client.mixins.json",
-			"environment": "client"
-		}
-	],
 	"depends": {
 		"fabricloader": ">=0.20.1",
 		"minecraft": "~26.3",

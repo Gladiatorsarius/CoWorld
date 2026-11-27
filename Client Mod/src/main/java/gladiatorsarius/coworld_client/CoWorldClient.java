@@ -1,6 +1,8 @@
 package gladiatorsarius.coworld_client;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import gladiatorsarius.coworld_common.protocol.CoWorldPackets;
 
 import net.minecraft.resources.Identifier;
 
@@ -17,11 +19,10 @@ public class CoWorldClient implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
-
-		LOGGER.info("Hello Fabric world!");
+		PayloadTypeRegistry.serverboundPlay().registerLarge(CoWorldPackets.Hello.TYPE, CoWorldPackets.Hello.CODEC,
+			CoWorldPackets.HELLO_PAYLOAD_LIMIT);
+		PayloadTypeRegistry.clientboundPlay().register(CoWorldPackets.Accept.TYPE, CoWorldPackets.Accept.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(CoWorldPackets.Decline.TYPE, CoWorldPackets.Decline.CODEC);
 	}
 
 	public static Identifier id(String path) {

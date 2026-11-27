@@ -4,10 +4,29 @@ Time windows use real-server ticks and `_ticks` names. Seconds below assume 20 T
 
 ## Admission and ownership
 
+Server settings may be overridden in `config/coworld-server.properties`:
+`offload_enabled`, `max_sub_servers`, `max_ping`, `max_ownership_radius`,
+`sync_speed_limit`, `handshake_hello_timeout_ticks`,
+`ping_probe_timeout_ticks`, and `log_level`. `high_ping_ticks` is reserved for planned
+post-accept hand-back and is not read by V1. Integer values must be
+nonnegative; malformed files fail at server startup. Client settings may be set in
+`config/coworld-client.properties` with `offloading=true|false` and
+`disk_allowance=<nonnegative bytes>`. A malformed client config fails closed
+by disabling offloading for that connection.
+
+If a file is absent, CoWorld writes the documented defaults on first startup.
+Sanity limits: `max_sub_servers` 10,000, `max_ping` 60,000 ms,
+`max_ownership_radius` 512 chunks, `sync_speed_limit` 1,000,000,000,000
+bytes/s, handshake timeouts 1,000,000 ticks, and `log_level` exactly `normal`
+or `debug`. The planned
+`high_ping_ticks` is capped at 1,000,000 ticks too. Out-of-range or malformed
+values reject startup for the server and fail closed for the client.
+
 - `offload_enabled`: Boolean master switch. When false, decline new offloading and request normal hand-back from existing owners; players continue through the real server. Transfers still obey the occupied-chunk and failure rules. **Default:** true.
 - `max_sub_servers`: Maximum simultaneous sub-server instances, including startup and hand-back. A new instance at the cap is declined, without kicking its player. **Unit:** instances. **Default:** 20.
-- `max_ping`: Maximum accepted round-trip time. Handshake uses the median of three completed probes. A value equal to the limit passes; only a larger value fails. Ongoing monitoring uses Minecraft's built-in player ping measurement. **Unit:** milliseconds. **Default:** 70 ms.
-- `high_ping_ticks`: Consecutive real-server ticks for which the current monitored ping must exceed `max_ping` before hand-back begins. A measurement at or below the limit resets the counter. **Default:** 100 (5 seconds).
+- `max_ping`: Maximum accepted round-trip time. Handshake uses the median of three completed vanilla keepalive probes, measured on the network thread without a tick wait, so 70 ms is a realistic cap rather than a tick-inflated one. A value equal to the limit passes; only a larger value fails. A frozen client window can inflate RTT. Ping is not monitored after Accept. **Unit:** milliseconds. **Default:** 70 ms.
+- `log_level`: `normal` logs only important events such as handshake results; `debug` adds timings, state changes, decisions with their inputs, and probe IDs. Warnings and errors are always shown. Every CoWorld line carries a component tag such as `[handshake]`. **Default:** `normal`.
+- `high_ping_ticks`: Planned, not implemented in V1. When added, this is the number of consecutive real-server ticks a monitored ping must exceed `max_ping` before hand-back begins; a measurement at or below the limit resets the counter. **Default:** 100 (5 seconds) when implemented.
 - `max_ownership_radius`: Nonnegative integer cap, in chunks. Requested radius is the minimum of this cap and client simulation distance. The square includes offsets satisfying `abs(dx) <= radius` and `abs(dz) <= radius`. A radius of 0 disables offloading for that client. Claims, unmodded-player occupied-chunk rule, and whole-redstone-set rules constrain actual ownership; redstone sets may extend beyond the square. **Default:** 8.
 - `vanilla_player_handover_release_distance`: Positive integer distance, in chunks, for releasing an unmodded-player-occupied chunk when its old sub-server owner's player moves away. Measure `max(abs(dx), abs(dz))` from that old owner's player chunk to the occupied chunk in the same dimension, not from a prospective new owner. Strictly greater than the threshold permits transfer to the real server or another eligible sub-server; equality remains protected. The real server has no owner-player position and cannot qualify through this distance exception alone. Moving and stationary occupants have the same rule. One occupied member pins a whole redstone set unless every occupied member qualifies for release. Clean shutdown, failure reclaim, and required redstone consolidation remain exceptions. **Default:** 12.
 - `redstone_takeover_max_chunks`: Maximum number of distinct chunks in a transferable redstone set. Equality is allowed; larger sets stay entirely server-owned. **Unit:** chunks. **Default:** 64.
