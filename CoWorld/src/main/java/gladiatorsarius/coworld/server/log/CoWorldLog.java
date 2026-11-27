@@ -4,7 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class CoWorldLog {
-	private static final Logger LOGGER = LoggerFactory.getLogger("coworld_server");
+	private static final Logger LOGGER = LoggerFactory.getLogger("coworld");
 	private static volatile boolean debugEnabled;
 
 	private CoWorldLog() {

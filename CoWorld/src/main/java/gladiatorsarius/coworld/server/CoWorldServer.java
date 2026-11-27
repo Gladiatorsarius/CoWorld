@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class CoWorldServer implements DedicatedServerModInitializer {
-	public static final String MOD_ID = "coworld_server";
+	public static final String MOD_ID = "coworld";
 
 	private static final Map<ServerPlayer, HandshakeHandler> HANDSHAKES = new ConcurrentHashMap<>();
 	private static SessionManager sessions;

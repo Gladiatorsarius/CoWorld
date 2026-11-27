@@ -12,7 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public record ClientSettings(boolean offloading, long diskAllowance, int simulationDistance) {
-	private static final Logger LOGGER = LoggerFactory.getLogger("coworld_client");
+	private static final Logger LOGGER = LoggerFactory.getLogger("coworld");
 	private static final long DEFAULT_DISK_ALLOWANCE = 1L << 30;
 	public ClientSettings {
 		if (diskAllowance < 0 || simulationDistance < 0) {
